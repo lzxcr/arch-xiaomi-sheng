@@ -1,0 +1,18 @@
+post_install() {
+  if command -v udevadm >/dev/null 2>&1; then
+    udevadm control --reload || true
+    if [ -e /sys/devices/virtual/misc/fastrpc-adsp ]; then
+      udevadm trigger /sys/devices/virtual/misc/fastrpc-adsp || true
+    fi
+  fi
+  if command -v systemctl >/dev/null 2>&1; then
+    systemctl daemon-reload || true
+    if [ -d /run/systemd/system ]; then
+      systemctl try-restart iio-sensor-proxy.service || true
+    fi
+  fi
+}
+
+post_upgrade() {
+  post_install
+}

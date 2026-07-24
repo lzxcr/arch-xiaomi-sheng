@@ -1,0 +1,32 @@
+# Maintainer: Jacobi Lie <jssnlzxcr@gmail.com>
+pkgname=xiaomi-sheng-keyboard-helper
+pkgver=0.2.0
+pkgrel=1
+pkgdesc="Keyboard helper for Xiaomi Sheng (Pad 6S Pro 12.4)"
+arch=('aarch64')
+url="https://github.com/ianchb/xiaomi-sheng-keyboard-helper"
+license=('Apache-2.0')
+depends=('glibc' 'glib2' 'systemd')
+makedepends=('gcc' 'make' 'pkgconf')
+source=("${pkgname}-${pkgver}.tar.gz::${url}/archive/refs/tags/v${pkgver}.tar.gz")
+sha256sums=('SKIP')
+
+prepare() {
+  cd "${pkgname}-${pkgver}"
+  sed -i "s|/usr/libexec/|/usr/lib/${pkgname}/|g" Makefile
+  sed -i "s|/usr/libexec/|/usr/lib/${pkgname}/|g" systemd/*.service systemd-user/*.service
+}
+
+build() {
+  cd "${pkgname}-${pkgver}"
+  make all
+}
+
+package() {
+  cd "${pkgname}-${pkgver}"
+  make DESTDIR="${pkgdir}" install
+  install -Dm0644 README.md "${pkgdir}/usr/share/doc/${pkgname}/README.md"
+  if [ -f packaging/debian/copyright ]; then
+    install -Dm0644 packaging/debian/copyright "${pkgdir}/usr/share/licenses/${pkgname}/LICENSE"
+  fi
+}

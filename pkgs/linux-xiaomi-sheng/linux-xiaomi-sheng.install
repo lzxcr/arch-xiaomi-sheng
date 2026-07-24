@@ -1,0 +1,14 @@
+post_install() {
+  echo ":: 正在自动为高通主线内核生成 initramfs 引导镜像..."
+  mkinitcpio -p linux-xiaomi-sheng
+}
+
+post_upgrade() {
+  echo ":: 检测到内核更新，正在刷新 initramfs..."
+  mkinitcpio -p linux-xiaomi-sheng
+}
+
+post_remove() {
+  echo ":: 正在清理残留的 initramfs 镜像文件..."
+  rm -f boot/initramfs-sheng.img
+}

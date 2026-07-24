@@ -1,0 +1,29 @@
+# Maintainer: Jacobi Lie <jssnlzxcr@gmail.com>
+pkgname=xiaomi-mipps-auth
+pkgver=0.21
+pkgrel=1
+pkgdesc="Automatic Xiaomi MiPPS/PPS charger authentication for sheng"
+arch=('aarch64')
+url="https://github.com/ianchb/xiaomi-mipps-auth"
+license=('GPL-2.0-only')
+
+depends=(
+  'python'
+  'systemd'
+  'util-linux'
+  'glib2'
+)
+source=("${pkgname}-${pkgver}.tar.gz::${url}/archive/refs/tags/${pkgver}.tar.gz")
+sha256sums=('SKIP')
+
+prepare() {
+  cd "${pkgname}-${pkgver}"
+  sed -i "s|/usr/libexec/|/usr/lib/${pkgname}/|g" xiaomi-mipps-auth.service 90-xiaomi-mipps-auth.rules
+}
+
+package() {
+  cd "${pkgname}-${pkgver}"
+  install -Dm0755 "xiaomi-mipps-auth" "$pkgdir/usr/lib/${pkgname}/xiaomi-mipps-auth"
+  install -Dm0644 "xiaomi-mipps-auth.service" "$pkgdir/usr/lib/systemd/system/xiaomi-mipps-auth.service"
+  install -Dm0644 "90-xiaomi-mipps-auth.rules" "$pkgdir/usr/lib/udev/rules.d/90-xiaomi-mipps-auth.rules"
+}

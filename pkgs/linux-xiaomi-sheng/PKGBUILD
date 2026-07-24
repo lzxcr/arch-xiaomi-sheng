@@ -1,0 +1,60 @@
+# Maintainer: Jacobi Lie <jssnlzxcr@gmail.com>
+pkgname=linux-xiaomi-sheng
+pkgver=7.1.4
+_tag=7.1.4-kbd
+pkgrel=1
+pkgdesc="Mainline Linux kernel, DTBs and modules for Xiaomi Pad 6S Pro 12.4 (sheng) - Standard Uncompressed"
+arch=('aarch64')
+url="https://github.com/ianchb/sm8550-mainline"
+license=('GPL-2.0-only')
+depends=('kmod' 'mkinitcpio')
+provides=('linux' 'linux-aarch64')
+conflicts=('linux' 'linux-aarch64')
+options=('!strip')
+install=${pkgname}.install
+source=("${pkgname}-${pkgver}.deb::${url}/releases/download/${_tag}/linux-xiaomi-sheng.deb")
+sha256sums=('55d03017f707b10895d5629913c4cde2d84bb03745367c6b0274779555d90220')
+
+package() {
+  cd "${srcdir}"
+
+  msg2 "正在解压自 GitHub 下载的远程 Debian 数据层..."
+  mkdir -p data_extracted
+  tar -xf data.tar.* -C data_extracted/
+
+  mkdir -p "${pkgdir}/boot"
+  mkdir -p "${pkgdir}/usr/lib/modules"
+  mkdir -p "${pkgdir}/etc/mkinitcpio.d"
+
+  msg2 "正在解压内核为标准 AArch64 Image 二进制..."
+  gunzip -c data_extracted/boot/Image.gz > "${pkgdir}/boot/Image"
+
+  local kerver=$(ls -1 data_extracted/lib/modules/ | head -n1)
+  if [[ -z "$kerver" ]]; then
+    error "无法从 .deb 中提取内核版本"
+    return 1
+  fi
+  
+  msg2 "正在搬运独立 DTB 设备树及内核配置文件..."
+  cp data_extracted/boot/sm8550-xiaomi-sheng.dtb "${pkgdir}/boot/"
+  cp data_extracted/boot/config-* "${pkgdir}/boot/"
+  cp data_extracted/boot/System.map-* "${pkgdir}/boot/"
+
+  msg2 "正在迁移内核模块并执行干净化权限修复..."
+  cp -r data_extracted/lib/modules/* "${pkgdir}/usr/lib/modules/"
+
+  find "${pkgdir}/usr/lib/modules" -type d -exec chmod 755 {} +
+  find "${pkgdir}/usr/lib/modules" -type f -exec chmod 644 {} +
+  find "${pkgdir}/boot" -type f -exec chmod 644 {} +
+
+  msg2 "正在自动生成 mkinitcpio 预设配置文件..."
+  cat <<EOF > "${pkgdir}/etc/mkinitcpio.d/${pkgname}.preset"
+# mkinitcpio preset for linux-xiaomi-sheng
+ALL_config="/etc/mkinitcpio.conf"
+ALL_kver="${kerver}"
+PRESETS=('default')
+
+default_image="/boot/initramfs-sheng.img"
+EOF
+  chmod 644 "${pkgdir}/etc/mkinitcpio.d/${pkgname}.preset"
+}

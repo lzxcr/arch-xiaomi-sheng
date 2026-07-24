@@ -1,0 +1,18 @@
+# Maintainer: Jacobi Lie <jssnlzxcr@gmail.com>
+pkgname=xiaomi-sheng-sensors
+pkgver=20240917
+pkgrel=1
+pkgdesc="Proprietary sensor configuration files for Xiaomi Mi Pad 6s Pro"
+arch=('aarch64')
+url=""
+license=('custom')
+depends=('iio-sensor-proxy')
+install=xiaomi-sheng-sensors.install
+source=('sheng-sensors-files')
+sha256sums=('SKIP')
+
+package() {
+  cd "${srcdir}"
+  install -d "${pkgdir}/usr"
+  cp -r sheng-sensors-files/usr/* "${pkgdir}/usr/"
+}

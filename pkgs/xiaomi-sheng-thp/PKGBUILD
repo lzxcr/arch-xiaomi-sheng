@@ -1,0 +1,40 @@
+# Maintainer: Jacobi Lie <jssnlzxcr@gmail.com>
+pkgname=xiaomi-sheng-thp
+pkgver=0.3.6
+pkgrel=1
+pkgdesc="NT36532E userspace touch processor for Xiaomi Sheng"
+arch=('aarch64')
+url="https://github.com/ianchb/xiaomi-sheng-thp"
+license=('Apache-2.0')
+
+depends=(
+  'bluez'
+  'glibc'
+  'gcc-libs'
+  'systemd'
+)
+optdepends=(
+  'xiaomi-pen-status: Xiaomi Focus Pen status reporting'
+)
+makedepends=(
+  'gcc'
+  'make'
+)
+
+source=("${pkgname}-${pkgver}.tar.gz::${url}/archive/refs/tags/v${pkgver}.tar.gz")
+sha256sums=('SKIP')
+
+prepare() {
+  cd "${pkgname}-${pkgver}"
+  sed -i 's|/usr/libexec/xiaomi-sheng-thp/xiaomi-sheng-thp|/usr/lib/xiaomi-sheng-thp/xiaomi-sheng-thp|g' systemd/xiaomi-sheng-thp.service
+}
+
+build() {
+  cd "${pkgname}-${pkgver}"
+  make clean all
+}
+
+package() {
+  cd "${pkgname}-${pkgver}"
+  make DESTDIR="${pkgdir}" LIBEXECDIR=/usr/lib/xiaomi-sheng-thp install
+}

@@ -1,0 +1,77 @@
+# Maintainer: Jacobi Lie <jssnlzxcr@gmail.com>
+pkgname=xiaomi-sheng-fingerprint
+pkgver=0.1.4
+pkgrel=1
+pkgdesc="Fingerprint (FPC1553 QTEE) support for Xiaomi Sheng (Pad 6S Pro 12.4)"
+arch=('aarch64')
+url="https://github.com/ianchb/xiaomi-sheng-fingerprint"
+license=('Apache-2.0')
+
+depends=(
+  'fprintd'
+  'systemd'
+  'glibc'
+  'glib2'
+  'pixman'
+  'libgusb'
+)
+makedepends=(
+  'gcc'
+  'meson'
+  'ninja'
+  'pkgconf'
+  'git'
+)
+
+source=("${pkgname}-${pkgver}.tar.gz::${url}/archive/refs/tags/v${pkgver}.tar.gz")
+sha256sums=('SKIP')
+
+build() {
+  cd "${pkgname}-${pkgver}"
+
+  sha256sum -c prebuilt/aarch64/SHA256SUMS
+
+  local _native_dir="${srcdir}/native"
+  scripts/build-backend.sh "${_native_dir}/backend"
+  scripts/build-libfprint.sh "${_native_dir}/backend" "${_native_dir}/libfprint"
+}
+
+package() {
+  cd "${pkgname}-${pkgver}"
+  local _native_dir="${srcdir}/native"
+
+  install -d -m 0755 "${pkgdir}/usr/lib/${pkgname}"
+  install -m 0644 "${_native_dir}/libfprint/libfprint-2.so.2.0.0" "${pkgdir}/usr/lib/${pkgname}/"
+  install -m 0644 "${_native_dir}/backend/libfpc1553-qtee.so" "${pkgdir}/usr/lib/${pkgname}/"
+  ln -s libfprint-2.so.2.0.0 "${pkgdir}/usr/lib/${pkgname}/libfprint-2.so.2"
+  ln -s libfprint-2.so.2     "${pkgdir}/usr/lib/${pkgname}/libfprint-2.so"
+
+  install -m 0755 prebuilt/aarch64/qteesupplicant "${pkgdir}/usr/lib/${pkgname}/"
+  install -m 0755 prebuilt/aarch64/sfs_config "${pkgdir}/usr/lib/${pkgname}/fpc-sfs-config"
+
+  install -d -m 0755 "${pkgdir}/usr/lib/qtee-listeners"
+  for listener in prebuilt/aarch64/qtee-listeners/*.so.1.0.0; do
+      local name
+      name=$(basename "$listener")
+      install -m 0644 "$listener" "${pkgdir}/usr/lib/qtee-listeners/$name"
+      ln -s "$name" "${pkgdir}/usr/lib/qtee-listeners/${name%.0.0}"
+  done
+
+  install -d -m 0755 "${pkgdir}/usr/lib/systemd/system/fprintd.service.d"
+  install -m 0644 systemd/fprintd.service.d/10-xiaomi-sheng-fpc1553.conf "${pkgdir}/usr/lib/systemd/system/fprintd.service.d/"
+
+  sed "s|/usr/libexec|/usr/lib/${pkgname}|g" systemd/sfsconfig.service \
+      > "${pkgdir}/usr/lib/systemd/system/sfsconfig.service"
+  chmod 0644 "${pkgdir}/usr/lib/systemd/system/sfsconfig.service"
+
+  sed -e "s|/usr/libexec|/usr/lib/${pkgname}|g" \
+      -e "s|/usr/lib/aarch64-linux-gnu/qtee-listeners|/usr/lib/qtee-listeners|g" \
+      systemd/qteesupplicant.service \
+      > "${pkgdir}/usr/lib/systemd/system/qteesupplicant.service"
+  chmod 0644 "${pkgdir}/usr/lib/systemd/system/qteesupplicant.service"
+
+  install -d -m 0755 "${pkgdir}/usr/lib/udev/rules.d"
+  install -m 0644 udev/99-qcomtee-fpc.rules "${pkgdir}/usr/lib/udev/rules.d/"
+  install -d -m 0755 "${pkgdir}/usr/share/doc/${pkgname}"
+  install -m 0644 README.md UPSTREAM_CHANGES.md "${pkgdir}/usr/share/doc/${pkgname}/"
+}

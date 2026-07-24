@@ -1,0 +1,30 @@
+# Maintainer: Jacobi Lie <jssnlzxcr@gmail.com>
+pkgname=fastrpc
+pkgver=1.0.6
+pkgrel=1
+pkgdesc="Qualcomm FastRPC userspace library for DSP communication"
+arch=('aarch64')
+url="https://github.com/qualcomm/fastrpc"
+license=('BSD-3-Clause')
+depends=('systemd')
+makedepends=('autoconf' 'automake' 'libtool')
+options=('!strip')
+source=("${pkgname}-${pkgver}.tar.gz::${url}/archive/refs/tags/v${pkgver}.tar.gz" "adsprpcd-sensorspd.service")
+sha256sums=('SKIP' 'SKIP')
+
+prepare() {
+  cd "${pkgname}-${pkgver}"
+  autoreconf -is
+}
+
+build() {
+  cd "${pkgname}-${pkgver}"
+  ./configure --prefix=/usr
+  make
+}
+
+package() {
+  cd "${pkgname}-${pkgver}"
+  make DESTDIR="${pkgdir}" install
+  install -Dm644 "${srcdir}/adsprpcd-sensorspd.service" "${pkgdir}/usr/lib/systemd/system/adsprpcd_sensorspd.service"
+}

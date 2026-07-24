@@ -1,0 +1,43 @@
+# Maintainer: Jacobi Lie <jssnlzxcr@gmail.com>
+pkgname=xiaomi-pen-status
+pkgver=0.2.2
+pkgrel=1
+pkgdesc="Stylus status tray utility for Xiaomi Focus Pen"
+arch=('aarch64')
+url="https://github.com/ianchb/xiaomi-pen-status"
+license=('GPL-2.0')
+
+depends=(
+  'qt6-base'
+  'qt6-svg'
+  'hicolor-icon-theme'
+)
+makedepends=(
+  'qt6-base'
+  'make'
+)
+
+source=("${pkgname}-${pkgver}.tar.gz::${url}/archive/refs/tags/v${pkgver}.tar.gz")
+sha256sums=('SKIP')
+
+build() {
+  cd "${pkgname}-${pkgver}"
+  qmake6
+  make
+}
+
+package() {
+  cd "${pkgname}-${pkgver}"
+
+  install -Dm755 "${pkgname}" "${pkgdir}/usr/bin/${pkgname}"
+
+  install -Dm644 "${pkgname}.desktop" "${pkgdir}/usr/share/applications/${pkgname}.desktop"
+
+  install -d -m755 "${pkgdir}/etc/xdg/autostart"
+  sed 's/^Exec=.*/Exec=xiaomi-pen-status/' "${pkgname}.desktop" \
+    > "${pkgdir}/etc/xdg/autostart/${pkgname}.desktop"
+  chmod 644 "${pkgdir}/etc/xdg/autostart/${pkgname}.desktop"
+
+  install -Dm644 "${pkgname}.svg" \
+    "${pkgdir}/usr/share/icons/hicolor/scalable/apps/${pkgname}.svg"
+}

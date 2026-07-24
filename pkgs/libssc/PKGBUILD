@@ -1,0 +1,26 @@
+# Maintainer: Jacobi Lie <jssnlzxcr@gmail.com>
+pkgname=libssc
+pkgver=0.4.4
+pkgrel=1
+pkgdesc="Library to expose Qualcomm Sensor Core sensors"
+arch=('aarch64')
+url="https://codeberg.org/DylanVanAssche/libssc"
+license=('GPL-3.0')
+depends=('glib2' 'protobuf-c' 'libqmi')
+makedepends=('meson' 'ninja' 'pkgconf' 'protobuf' 'git')
+source=("${pkgname}-${pkgver}.tar.gz::${url}/archive/v${pkgver}.tar.gz" "wait_for_qmi_service.patch")
+sha256sums=('SKIP' 'SKIP')
+
+prepare() {
+  cd "${pkgname}"
+  patch -Np1 -i "${srcdir}/wait_for_qmi_service.patch"
+}
+
+build() {
+  arch-meson "${pkgname}" build --prefix=/usr
+  meson compile -C build
+}
+
+package() {
+  DESTDIR="${pkgdir}" meson install -C build
+}
