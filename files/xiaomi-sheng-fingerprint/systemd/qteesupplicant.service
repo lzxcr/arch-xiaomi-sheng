@@ -1,0 +1,24 @@
+[Unit]
+Description=Qualcomm TEE listener services
+Requires=sfsconfig.service
+BindsTo=dev-tee0.device
+After=dev-tee0.device sfsconfig.service
+
+[Service]
+Type=exec
+ExecStart=/usr/lib/xiaomi-sheng-fingerprint/qteesupplicant
+Environment=LD_LIBRARY_PATH=/usr/lib/qtee-listeners
+Restart=always
+AmbientCapabilities=CAP_SYS_RAWIO
+CapabilityBoundingSet=CAP_SYS_RAWIO
+
+ProtectSystem=full
+ProtectHome=false
+PrivateTmp=false
+NoNewPrivileges=false
+DeviceAllow=/dev/tee0 rw
+DeviceAllow=/dev/bsg/0:0:0:49476 rw
+DeviceAllow=/dev/bsg/ufs-bsg0 rw
+
+[Install]
+WantedBy=multi-user.target

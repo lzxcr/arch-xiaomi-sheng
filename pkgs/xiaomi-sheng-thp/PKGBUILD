@@ -21,13 +21,10 @@ makedepends=(
   'make'
 )
 
-source=("${pkgname}-${pkgver}.tar.gz::${url}/archive/refs/tags/v${pkgver}.tar.gz")
-sha256sums=('SKIP')
-
-prepare() {
-  cd "${pkgname}-${pkgver}"
-  sed -i 's|/usr/libexec/xiaomi-sheng-thp/xiaomi-sheng-thp|/usr/lib/xiaomi-sheng-thp/xiaomi-sheng-thp|g' systemd/xiaomi-sheng-thp.service
-}
+source=("${pkgname}-${pkgver}.tar.gz::${url}/archive/refs/tags/v${pkgver}.tar.gz"
+        "files.tar.gz")
+sha256sums=('SKIP'
+            'SKIP')
 
 build() {
   cd "${pkgname}-${pkgver}"
@@ -37,4 +34,7 @@ build() {
 package() {
   cd "${pkgname}-${pkgver}"
   make DESTDIR="${pkgdir}" LIBEXECDIR=/usr/lib/xiaomi-sheng-thp install
+
+  install -Dm0644 "${srcdir}/files/${pkgname}/systemd/xiaomi-sheng-thp.service" \
+    "${pkgdir}/usr/lib/systemd/system/xiaomi-sheng-thp.service"
 }

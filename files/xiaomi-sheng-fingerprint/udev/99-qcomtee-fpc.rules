@@ -1,0 +1,3 @@
+# Publish Qualcomm TEE devices to systemd and start the listener daemon.
+# This is the tee-device subset of the upstream minkipc qcomtee udev rule.
+SUBSYSTEM=="tee", KERNEL=="tee[0-9]*", MODE="0600", OWNER="root", GROUP="root", TAG+="systemd", ENV{SYSTEMD_WANTS}+="qteesupplicant.service"

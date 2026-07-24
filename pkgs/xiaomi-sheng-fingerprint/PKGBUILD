@@ -23,8 +23,10 @@ makedepends=(
   'git'
 )
 
-source=("${pkgname}-${pkgver}.tar.gz::${url}/archive/refs/tags/v${pkgver}.tar.gz")
-sha256sums=('SKIP')
+source=("${pkgname}-${pkgver}.tar.gz::${url}/archive/refs/tags/v${pkgver}.tar.gz"
+        "files.tar.gz")
+sha256sums=('SKIP'
+            'SKIP')
 
 build() {
   cd "${pkgname}-${pkgver}"
@@ -58,20 +60,18 @@ package() {
   done
 
   install -d -m 0755 "${pkgdir}/usr/lib/systemd/system/fprintd.service.d"
-  install -m 0644 systemd/fprintd.service.d/10-xiaomi-sheng-fpc1553.conf "${pkgdir}/usr/lib/systemd/system/fprintd.service.d/"
+  install -m 0644 "${srcdir}/files/${pkgname}/systemd/fprintd.service.d/10-xiaomi-sheng-fpc1553.conf" \
+    "${pkgdir}/usr/lib/systemd/system/fprintd.service.d/"
 
-  sed "s|/usr/libexec|/usr/lib/${pkgname}|g" systemd/sfsconfig.service \
-      > "${pkgdir}/usr/lib/systemd/system/sfsconfig.service"
-  chmod 0644 "${pkgdir}/usr/lib/systemd/system/sfsconfig.service"
+  install -m 0644 "${srcdir}/files/${pkgname}/systemd/sfsconfig.service" \
+    "${pkgdir}/usr/lib/systemd/system/sfsconfig.service"
 
-  sed -e "s|/usr/libexec|/usr/lib/${pkgname}|g" \
-      -e "s|/usr/lib/aarch64-linux-gnu/qtee-listeners|/usr/lib/qtee-listeners|g" \
-      systemd/qteesupplicant.service \
-      > "${pkgdir}/usr/lib/systemd/system/qteesupplicant.service"
-  chmod 0644 "${pkgdir}/usr/lib/systemd/system/qteesupplicant.service"
+  install -m 0644 "${srcdir}/files/${pkgname}/systemd/qteesupplicant.service" \
+    "${pkgdir}/usr/lib/systemd/system/qteesupplicant.service"
 
   install -d -m 0755 "${pkgdir}/usr/lib/udev/rules.d"
-  install -m 0644 udev/99-qcomtee-fpc.rules "${pkgdir}/usr/lib/udev/rules.d/"
+  install -m 0644 "${srcdir}/files/${pkgname}/udev/99-qcomtee-fpc.rules" \
+    "${pkgdir}/usr/lib/udev/rules.d/"
   install -d -m 0755 "${pkgdir}/usr/share/doc/${pkgname}"
   install -m 0644 README.md UPSTREAM_CHANGES.md "${pkgdir}/usr/share/doc/${pkgname}/"
 }

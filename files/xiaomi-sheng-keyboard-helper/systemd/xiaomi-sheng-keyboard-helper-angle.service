@@ -1,0 +1,15 @@
+[Unit]
+Description=Xiaomi sheng keyboard fold angle helper
+Wants=adsprpcd-sensorspd.service
+After=adsprpcd-sensorspd.service
+StartLimitIntervalSec=0
+
+[Service]
+Type=simple
+ExecStart=/usr/lib/xiaomi-sheng-keyboard-helper/xiaomi-sheng-keyboard-helper --angle
+Restart=on-failure
+RestartSec=2
+NoNewPrivileges=true
+ProtectHome=true
+ProtectSystem=strict
+PrivateTmp=true

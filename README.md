@@ -12,6 +12,7 @@ Arch Linux ARM 软件包集合和构建系统，为 **Xiaomi Pad 6S Pro 12.4 (SM
 | `libssc` | Qualcomm Sensor Core 传感器库 | [DylanVanAssche/libssc](https://codeberg.org/DylanVanAssche/libssc) |
 | `iio-sensor-proxy` | IIO 传感器到 D-Bus 的代理（带 SSC 支持） | [hadess/iio-sensor-proxy](https://gitlab.freedesktop.org/hadess/iio-sensor-proxy) |
 | `xiaomi-sheng-sensors` | 小米平板 6S Pro 传感器配置文件 | 从 debian-sheng 提取 |
+| `alsa-ucm-xiaomi-sheng` | ALSA UCM2 音频配置 | 从 debian-sheng 提取 |
 | `linux-xiaomi-sheng` | 主线内核 + 模块 + DTB（预编译 .deb 解包） | [ianchb/sm8550-mainline](https://github.com/ianchb/sm8550-mainline) |
 | `linux-firmware-sheng` | 固件 blob（替代 linux-firmware-qcom 等） | [ianchb/sheng-firmware](https://github.com/ianchb/sheng-firmware) |
 | `xiaomi-sheng-devauth` | 小米官方键盘认证守护进程 | [ianchb/sheng_devauth](https://github.com/ianchb/sheng_devauth) |
@@ -41,31 +42,14 @@ pacman -S --needed base-devel git arch-install-scripts devtools
 make all
 
 # 或分步执行
-make fetch    # ① 从 ianchb/debian-sheng 提取本地源文件
-make build    # ② 在 clean chroot 中按拓扑序构建所有包
-make repo     # ③ 创建本地 pacman 仓库
-make rootfs   # ④ 用 pacstrap 组装可刷写的 rootfs.img
+make build    # ① 在 clean chroot 中按拓扑序构建所有包
+make repo     # ② 创建本地 pacman 仓库
+make rootfs   # ③ 用 pacstrap 组装可刷写的 rootfs.img
 ```
 
 ### 分步说明
 
-**步骤 ① — fetch-sources.sh**
-
-自动 clone [ianchb/debian-sheng](https://github.com/ianchb/debian-sheng) 并提取以下文件到对应 pkgs/ 目录：
-
-```
-patches/adsprpcd-sensorspd.service  →  pkgs/fastrpc/
-patches/wait_for_qmi_service.patch  →  pkgs/libssc/
-sheng-sensors-files/                →  pkgs/xiaomi-sheng-sensors/
-```
-
-如已有本地 clone，可加 `--local` 参数加速：
-
-```bash
-./scripts/fetch-sources.sh --local /path/to/debian-sheng
-```
-
-**步骤 ② — build-pkgs.sh**
+**步骤 ① — build-pkgs.sh**
 
 按依赖拓扑分 4 个 tier 依次构建：
 
@@ -84,11 +68,11 @@ Tier 3: 剩余 6 个包（无内部交叉依赖）
 ./scripts/build-pkgs.sh --skip linux-xiaomi-sheng  # 跳过指定包
 ```
 
-**步骤 ③ — build-repo.sh**
+**步骤 ② — build-repo.sh**
 
 将所有构建好的 `.pkg.tar.*` 注册为本地 pacman 仓库（`out/repo/sheng.db.tar.gz`），并生成 pacman.conf 片段。
 
-**步骤 ④ — mkrootfs.sh**
+**步骤 ③ — mkrootfs.sh**
 
 用 pacstrap 创建 ext4 格式的 rootfs 镜像：
 
@@ -197,16 +181,25 @@ fastboot reboot
 arch-xiaomi-sheng/
 ├── config.sh                         # 全局构建配置
 ├── Makefile                          # 便捷入口
+├── files/                            # 本地维护的预置文件
+│   ├── fastrpc/
+│   ├── xiaomi-sheng-sensors/
+│   ├── alsa-ucm-xiaomi-sheng/
+│   ├── xiaomi-mipps-auth/
+│   ├── xiaomi-sheng-keyboard-helper/
+│   ├── xiaomi-sheng-thp/
+│   └── xiaomi-sheng-fingerprint/
 ├── scripts/
-│   ├── fetch-sources.sh              # ① 提取 debian-sheng 源文件
-│   ├── build-pkgs.sh                 # ② 按拓扑序构建包
-│   ├── build-repo.sh                 # ③ 创建本地仓库
-│   └── mkrootfs.sh                   # ④ 组装 rootfs 镜像
-├── pkgs/                             # 12 个 PKGBUILD 包
+│   ├── package-files.sh              # 将 files/ 打包为 pkgs/<pkg>/files.tar.gz
+│   ├── build-pkgs.sh                 # ① 按拓扑序构建包
+│   ├── build-repo.sh                 # ② 创建本地仓库
+│   └── mkrootfs.sh                   # ③ 组装 rootfs 镜像
+├── pkgs/                             # 13 个 PKGBUILD 包
 │   ├── fastrpc/
 │   ├── libssc/
 │   ├── iio-sensor-proxy/
 │   ├── xiaomi-sheng-sensors/
+│   ├── alsa-ucm-xiaomi-sheng/
 │   ├── linux-xiaomi-sheng/
 │   ├── linux-firmware-sheng/
 │   ├── xiaomi-sheng-devauth/
@@ -217,6 +210,8 @@ arch-xiaomi-sheng/
 │   └── xiaomi-sheng-thp/
 ├── docs/
 │   ├── DESIGN.md                     # 构建系统设计文档
+│   ├── preprocessing.md              # files/ 预处理操作记录
+│   ├── files-restructure.md          # files/ 集中化管理设计
 │   └── superpowers/plans/            # 实现计划
 └── out/                              # 构建输出 (.gitignore)
     ├── pkgs/                         # 构建好的 .pkg.tar.*
@@ -227,7 +222,7 @@ arch-xiaomi-sheng/
 ## 维护说明
 
 - 更新预编译内核：修改 `config.sh` 中的 `KERNEL_PREBUILT_TAG`
-- 更新 debian-sheng 源文件：重新运行 `make fetch`
+- `files/` 中的本地文件更新后，运行 `./scripts/package-files.sh` 重新打包 `files.tar.gz`
 - 所有包使用 `sha256sums=('SKIP')`（因上游未提供校验和文件），实际构建时通过 HTTPS 传输保证完整性
 - 在 `makechrootpkg` clean chroot 环境下构建时，`fakeroot` 自动处理文件所属权，无需显式 `chown`
 

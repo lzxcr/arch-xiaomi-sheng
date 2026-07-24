@@ -3,26 +3,20 @@ pkgname=libssc
 pkgver=0.4.4
 pkgrel=1
 pkgdesc="Library to expose Qualcomm Sensor Core sensors"
-arch=('aarch64')
+arch=('aarch64' 'x86_64')
 url="https://codeberg.org/DylanVanAssche/libssc"
-license=('GPL-3.0')
+license=('GPL-3.0-or-later')
 depends=('glib2' 'protobuf-c' 'libqmi')
-makedepends=('meson' 'ninja' 'pkgconf' 'protobuf' 'git')
-source=("${pkgname}-${pkgver}.tar.gz::${url}/archive/v${pkgver}.tar.gz" "wait_for_qmi_service.patch")
-sha256sums=('SKIP' 'SKIP')
-
-prepare() {
-  cd "${pkgname}"
-  patch -Np1 -i "${srcdir}/wait_for_qmi_service.patch"
-}
+makedepends=('meson' 'ninja' 'pkgconf' 'protobuf')
+source=("${pkgname}-${pkgver}.tar.gz::${url}/archive/v${pkgver}.tar.gz")
+sha256sums=('SKIP')
 
 build() {
-  arch-meson "${pkgname}" build --prefix=/usr
+  arch-meson "${pkgname}" build
   meson compile -C build
 }
 
 package() {
-  DESTDIR="${pkgdir}" meson install -C build
-  # 移除测试文件（避免 $srcdir 引用警告）
-  rm -rf "${pkgdir}/usr/lib/installed-tests" 2>/dev/null || true
+  meson install -C build --destdir "${pkgdir}"
+  rm -rf "${pkgdir}/usr/lib/installed-tests"
 }

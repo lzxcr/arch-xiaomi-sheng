@@ -1,12 +1,12 @@
 # Maintainer: Jacobi Lie <jssnlzxcr@gmail.com>
-pkgname=xiaomi-sheng-sensors
+pkgname=alsa-ucm-xiaomi-sheng
 pkgver=20260723
 pkgrel=1
-pkgdesc="Proprietary sensor configuration files for Xiaomi Mi Pad 6s Pro"
+pkgdesc="ALSA UCM2 configuration for Xiaomi Pad 6S Pro 12.4 (sheng)"
 arch=('aarch64')
-url="https://github.com/qualcomm/fastrpc"
+url="https://github.com/ianchb/debian-sheng"
 license=('custom')
-depends=('iio-sensor-proxy')
+depends=('alsa-ucm-conf')
 source=("files.tar.gz")
 sha256sums=('SKIP')
 

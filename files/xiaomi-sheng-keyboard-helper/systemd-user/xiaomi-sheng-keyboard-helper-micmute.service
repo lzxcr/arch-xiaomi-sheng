@@ -1,0 +1,10 @@
+[Unit]
+Description=Xiaomi sheng keyboard microphone mute indicator
+After=pipewire-pulse.service
+ConditionPathExists=/sys/class/leds/nanosic::micmute/brightness
+
+[Service]
+Type=simple
+ExecStart=/usr/lib/xiaomi-sheng-keyboard-helper/xiaomi-sheng-keyboard-helper --micmute
+Restart=on-failure
+RestartSec=2

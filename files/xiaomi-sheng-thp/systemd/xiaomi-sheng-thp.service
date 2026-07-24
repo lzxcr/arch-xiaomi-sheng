@@ -1,0 +1,18 @@
+[Unit]
+Description=Xiaomi Sheng NT36532E userspace touch processor
+After=systemd-modules-load.service bluetooth.service
+Wants=bluetooth.service
+StartLimitIntervalSec=0
+
+[Service]
+Type=simple
+ExecStartPre=/usr/bin/test -e /proc/nvt_thp_stream
+ExecStartPre=/usr/bin/test -e /proc/nvt_thp_stylus
+ExecStart=/usr/lib/xiaomi-sheng-thp/xiaomi-sheng-thp
+Restart=on-failure
+RestartSec=1
+KillSignal=SIGINT
+TimeoutStopSec=10
+
+[Install]
+WantedBy=multi-user.target

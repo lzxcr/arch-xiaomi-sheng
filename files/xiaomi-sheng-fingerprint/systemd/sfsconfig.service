@@ -1,0 +1,11 @@
+[Unit]
+Description=QTEE secure-file-system configuration
+Before=qteesupplicant.service
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/usr/lib/xiaomi-sheng-fingerprint/fpc-sfs-config
+
+[Install]
+WantedBy=multi-user.target

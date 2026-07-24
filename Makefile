@@ -4,14 +4,9 @@
 SHELL := /bin/bash
 .SHELLFLAGS = -euo pipefail -c
 
-.PHONY: all fetch build repo rootfs clean
+.PHONY: all build repo rootfs clean
 
-all: fetch build repo rootfs
-
-# ① 从 debian-sheng 提取源文件
-fetch:
-	@echo "==> [1/4] 提取源文件 ..."
-	@bash scripts/fetch-sources.sh
+all: build repo rootfs
 
 # ② 构建所有包
 build:

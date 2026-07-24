@@ -8,13 +8,14 @@ url="https://github.com/ianchb/xiaomi-sheng-keyboard-helper"
 license=('Apache-2.0')
 depends=('glibc' 'glib2' 'systemd')
 makedepends=('gcc' 'make' 'pkgconf')
-source=("${pkgname}-${pkgver}.tar.gz::${url}/archive/refs/tags/v${pkgver}.tar.gz")
-sha256sums=('SKIP')
+source=("${pkgname}-${pkgver}.tar.gz::${url}/archive/refs/tags/v${pkgver}.tar.gz"
+        "files.tar.gz")
+sha256sums=('SKIP'
+            'SKIP')
 
 prepare() {
   cd "${pkgname}-${pkgver}"
   sed -i "s|/usr/libexec/|/usr/lib/${pkgname}/|g" Makefile
-  sed -i "s|/usr/libexec/|/usr/lib/${pkgname}/|g" systemd/*.service systemd-user/*.service
 }
 
 build() {
@@ -25,6 +26,12 @@ build() {
 package() {
   cd "${pkgname}-${pkgver}"
   make DESTDIR="${pkgdir}" install
+
+  install -Dm0644 "${srcdir}/files/${pkgname}/systemd/xiaomi-sheng-keyboard-helper-angle.service" \
+    "${pkgdir}/usr/lib/systemd/system/xiaomi-sheng-keyboard-helper-angle.service"
+  install -Dm0644 "${srcdir}/files/${pkgname}/systemd-user/xiaomi-sheng-keyboard-helper-micmute.service" \
+    "${pkgdir}/usr/lib/systemd/user/xiaomi-sheng-keyboard-helper-micmute.service"
+
   install -Dm0644 README.md "${pkgdir}/usr/share/doc/${pkgname}/README.md"
   if [ -f packaging/debian/copyright ]; then
     install -Dm0644 packaging/debian/copyright "${pkgdir}/usr/share/licenses/${pkgname}/LICENSE"
