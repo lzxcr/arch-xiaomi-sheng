@@ -1,6 +1,22 @@
 # 构建输出
 /out/
 
-# 构建临时文件
+# 构建临时目录（makepkg 生成的编译/打包中间文件）
+**/src/
+**/pkg/
+
+# 构建产物（makepkg 输出的 .pkg.tar.* 包文件）
 *.pkg.tar.*
+
+# 下载的远程源码包（非本地维护的源文件）
+pkgs/*/*.tar.gz
+pkgs/*/*.deb
+pkgs/*/*.deb.part
+pkgs/*/sheng-firmware/
+pkgs/*/sheng_devauth/
+
+# 但本地维护的源文件需要跟踪
+!pkgs/xiaomi-sheng-sensors/sheng-sensors-files.tar.gz
+
+# 日志
 *.log

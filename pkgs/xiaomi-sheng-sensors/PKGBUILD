@@ -8,7 +8,7 @@ url=""
 license=('custom')
 depends=('iio-sensor-proxy')
 install=xiaomi-sheng-sensors.install
-source=('sheng-sensors-files')
+source=("sheng-sensors-files.tar.gz")
 sha256sums=('SKIP')
 
 package() {

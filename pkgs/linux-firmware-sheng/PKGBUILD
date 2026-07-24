@@ -16,7 +16,6 @@ package() {
     cd "${srcdir}/sheng-firmware"
     install -d "${pkgdir}/usr/lib/firmware"
     cp -dr --no-preserve=ownership * "${pkgdir}/usr/lib/firmware/"
-    chown -R root:root "${pkgdir}"
     find "${pkgdir}/usr/lib/firmware" -type d -exec chmod 755 {} +
     find "${pkgdir}/usr/lib/firmware" -type f -exec chmod 644 {} +
 }

@@ -23,4 +23,6 @@ build() {
 
 package() {
   DESTDIR="${pkgdir}" meson install -C build
+  # 移除测试文件（避免 $srcdir 引用警告）
+  rm -rf "${pkgdir}/usr/lib/installed-tests" 2>/dev/null || true
 }

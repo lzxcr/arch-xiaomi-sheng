@@ -1,7 +1,7 @@
 # Maintainer: Jacobi Lie <jssnlzxcr@gmail.com>
 pkgname=xiaomi-sheng-devauth
 _pkgname=sheng_devauth
-pkgver=r12.a1b2c3d
+pkgver=r5.bac03b5
 pkgrel=1
 pkgdesc="Keyboard authentication daemon for Xiaomi devices"
 arch=('aarch64')
