@@ -81,4 +81,4 @@
 
 | 上游来源 | 预处理操作 |
 |----------|-----------|
-| `ianchb/debian-sheng` / `sheng-devauth/` | `sheng-devauth.service` 中内联 `Requires=qteesupplicant.service` 和 `After=qteesupplicant.service`（合并 debian-sheng 中 `qtee.conf` drop-in），移除单独的 qtee.conf |
+| `ianchb/debian-sheng` / `sheng-devauth/` | `xiaomi-sheng-devauth.service` 中内联 `Requires=qteesupplicant.service` 和 `After=qteesupplicant.service`（合并 debian-sheng 中 `qtee.conf` drop-in），移除单独的 qtee.conf |

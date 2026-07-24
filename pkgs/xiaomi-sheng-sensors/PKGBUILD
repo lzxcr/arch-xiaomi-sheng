@@ -6,6 +6,7 @@ pkgdesc="Proprietary sensor configuration files for Xiaomi Mi Pad 6s Pro"
 arch=('aarch64')
 url="https://github.com/qualcomm/fastrpc"
 license=('custom')
+options=('!strip')
 depends=('iio-sensor-proxy')
 source=("files.tar.gz")
 sha256sums=('SKIP')

@@ -43,7 +43,7 @@ files/
 │   │   ├── 10-xiaomi-sheng-fpc1553.conf
 │   │   └── 99-qcomtee-fpc.rules
 │   ├── xiaomi-sheng-devauth/
-│   │   └── sheng-devauth.service         # 含 qtee.conf 合并的依赖
+│   │   └── xiaomi-sheng-devauth.service         # 含 qtee.conf 合并的依赖
 │   └── xiaomi-sheng-sensors/
 │       └── 81-sheng-ssc-sensors.rules
 ```

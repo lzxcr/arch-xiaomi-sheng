@@ -1,0 +1,75 @@
+#!/bin/bash
+#
+# xiaomi-sheng-flash-boot — mkinitcpio post-generation hook
+# Builds boot.img from /boot/loader/entries/*.conf and flashes to
+# the inactive A/B slot (alternating between boot_a and boot_b).
+#
+set -euo pipefail
+
+ENTRY_CONF="/boot/loader/entries/arch.conf"
+BOOT_IMG="/boot/boot.img"
+
+# ── 检测当前 active slot，决定刷入对面 ──
+SLOT_SUFFIX=$(grep -oP 'androidboot\.slot_suffix=\K\S+' /proc/cmdline 2>/dev/null || true)
+if [ "$SLOT_SUFFIX" = "_a" ]; then
+    TARGET_PART="/dev/disk/by-partlabel/boot_b"
+elif [ "$SLOT_SUFFIX" = "_b" ]; then
+    TARGET_PART="/dev/disk/by-partlabel/boot_a"
+else
+    # 无法检测 slot，默认刷 boot_b
+    TARGET_PART="/dev/disk/by-partlabel/boot_b"
+fi
+
+if [ ! -f "$ENTRY_CONF" ]; then
+    echo "ERROR: $ENTRY_CONF not found" >&2
+    exit 1
+fi
+
+echo "==> [xiaomi-sheng-flash-boot] Parsing $ENTRY_CONF ..."
+
+CONF_LINUX=$(sed -n 's/^linux[[:space:]]\+\(.*\)/\1/p' "$ENTRY_CONF" | xargs)
+CONF_INITRD=$(sed -n 's/^initrd[[:space:]]\+\(.*\)/\1/p' "$ENTRY_CONF" | xargs)
+CONF_DTB=$(sed -n 's/^devicetree[[:space:]]\+\(.*\)/\1/p' "$ENTRY_CONF" | xargs)
+CONF_OPTIONS=$(sed -n 's/^options[[:space:]]\+\(.*\)/\1/p' "$ENTRY_CONF" | xargs)
+
+KERNEL_PATH="/boot/${CONF_LINUX#/}"
+RAMDISK_PATH="/boot/${CONF_INITRD#/}"
+DTB_PATH="/boot/${CONF_DTB#/}"
+
+echo "  Kernel:    $KERNEL_PATH"
+echo "  Initramfs: $RAMDISK_PATH"
+echo "  DTB:       $DTB_PATH"
+echo "  Target:    $TARGET_PART  (current slot: ${SLOT_SUFFIX:-unknown})"
+
+if [ ! -f "$KERNEL_PATH" ] || [ ! -f "$RAMDISK_PATH" ]; then
+    echo "ERROR: Kernel or initramfs not found" >&2
+    exit 1
+fi
+
+echo "==> Building boot.img ..."
+
+MKBOOTIMG_ARGS=(
+    --kernel "$KERNEL_PATH"
+    --ramdisk "$RAMDISK_PATH"
+    --cmdline "$CONF_OPTIONS"
+    --base 0x00000000
+    --pagesize 4096
+    --header_version 2
+    -o "$BOOT_IMG"
+)
+
+if [ -n "$CONF_DTB" ] && [ -f "$DTB_PATH" ]; then
+    MKBOOTIMG_ARGS+=(--dtb "$DTB_PATH")
+fi
+
+mkbootimg "${MKBOOTIMG_ARGS[@]}"
+
+if [ ! -f "$BOOT_IMG" ]; then
+    echo "ERROR: mkbootimg failed" >&2
+    exit 1
+fi
+
+echo "==> Flashing $BOOT_IMG → $TARGET_PART ..."
+dd if="$BOOT_IMG" of="$TARGET_PART" bs=4M status=progress
+sync
+echo "==> [Success] $TARGET_PART updated"

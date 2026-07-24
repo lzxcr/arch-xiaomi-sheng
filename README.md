@@ -140,8 +140,8 @@ sudo systemctl try-restart iio-sensor-proxy.service
 
 ```bash
 # 键盘认证（使用小米官方键盘时启用）
-sudo systemctl enable sheng-devauth.service
-sudo systemctl start  sheng-devauth.service
+sudo systemctl enable xiaomi-sheng-devauth.service
+sudo systemctl start  xiaomi-sheng-devauth.service
 
 # 指纹支持
 sudo systemctl enable sfsconfig.service
@@ -175,7 +175,7 @@ sudo mkinitcpio -p linux-xiaomi-sheng
 | 功能 | debian-sheng | arch-xiaomi-sheng |
 |---|---|---|
 | adsprpcd_sensorspd | postinst 自动启用 | **需手动** `systemctl enable` |
-| sheng-devauth | postinst 自动启用 | **需手动** `systemctl enable` |
+| xiaomi-sheng-devauth | postinst 自动启用 | **需手动** `systemctl enable` |
 | sfsconfig / qteesupplicant | postinst 自动启用 | **需手动** `systemctl enable` |
 | mkinitcpio | 由 deb 包触发器运行 | **需手动**（或依赖 post_install 钩子） |
 | udev 规则重载 | postinst 自动执行 | **需手动** `udevadm control --reload` |
