@@ -21,6 +21,6 @@ sha256sums=('SKIP'
 package() {
   cd "${pkgname}-${pkgver}"
   install -Dm0755 "xiaomi-mipps-auth" "$pkgdir/usr/lib/${pkgname}/xiaomi-mipps-auth"
-  install -Dm0644 "${srcdir}/files/${pkgname}/xiaomi-mipps-auth.service" "$pkgdir/usr/lib/systemd/system/xiaomi-mipps-auth.service"
-  install -Dm0644 "${srcdir}/files/${pkgname}/90-xiaomi-mipps-auth.rules" "$pkgdir/usr/lib/udev/rules.d/90-xiaomi-mipps-auth.rules"
+  install -Dm0644 "${srcdir}/xiaomi-mipps-auth.service" "$pkgdir/usr/lib/systemd/system/xiaomi-mipps-auth.service"
+  install -Dm0644 "${srcdir}/90-xiaomi-mipps-auth.rules" "$pkgdir/usr/lib/udev/rules.d/90-xiaomi-mipps-auth.rules"
 }

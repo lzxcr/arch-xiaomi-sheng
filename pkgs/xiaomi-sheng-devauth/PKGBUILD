@@ -9,8 +9,10 @@ url="https://github.com/ianchb/sheng_devauth"
 license=('custom')
 depends=('systemd')
 makedepends=('git' 'make' 'gcc')
-source=("git+https://github.com/ianchb/sheng_devauth.git")
-sha256sums=('SKIP')
+source=("git+https://github.com/ianchb/sheng_devauth.git"
+        "files.tar.gz")
+sha256sums=('SKIP'
+            'SKIP')
 
 pkgver() {
   cd "${_pkgname}"
@@ -25,7 +27,10 @@ build() {
 package() {
   cd "${_pkgname}"
   install -Dm755 xiaomi_devauth "${pkgdir}/usr/bin/xiaomi_devauth"
-  if [ -f sheng-devauth.service ]; then
-    install -Dm644 sheng-devauth.service "${pkgdir}/usr/lib/systemd/system/sheng-devauth.service"
-  fi
+
+  # 从 files.tar.gz 安装 systemd 单元及服务降级配置
+  install -Dm644 "${srcdir}/usr/lib/systemd/system/sheng-devauth.service" \
+    "${pkgdir}/usr/lib/systemd/system/sheng-devauth.service"
+  install -Dm644 "${srcdir}/usr/lib/systemd/system/sheng-devauth.service.d/qtee.conf" \
+    "${pkgdir}/usr/lib/systemd/system/sheng-devauth.service.d/qtee.conf"
 }

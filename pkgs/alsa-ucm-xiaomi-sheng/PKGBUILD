@@ -11,5 +11,5 @@ source=("files.tar.gz")
 sha256sums=('SKIP')
 
 package() {
-  cp -dr --no-preserve=ownership "${srcdir}/files/${pkgname}/usr" "${pkgdir}/"
+  cp -dr --no-preserve=ownership "${srcdir}/usr" "${pkgdir}/"
 }

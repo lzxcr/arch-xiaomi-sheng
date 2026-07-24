@@ -7,24 +7,37 @@
 ## 2. 总体流程
 
 ```
-debian-sheng (GitHub)          config.sh
+files/ (预置文件)            config.sh
       │                           │
       ▼                           ▼
-fetch-sources.sh ──────► build-pkgs.sh ──────► build-repo.sh ──────► mkrootfs.sh
-  (提取本地源文件)       (clean chroot 构建)    (建 pacman 仓库)     (pacstrap 组装镜像)
+package-files.sh ──────► build-pkgs.sh ──────► build-repo.sh ──────► mkrootfs.sh
+  (打包 files/ → files.tar.gz)  (clean chroot 构建)  (建 pacman 仓库)   (pacstrap 组装镜像)
 ```
 
 ## 3. 目录结构
 
 ```
 arch-xiaomi-sheng/
-├── config.sh                     # 全局配置（用户可编辑）
+├── Makefile                      # 便捷入口
+├── files/                         # 本地预置文件（分两类）
+│   ├── direct/                    #   直接拷贝的数据文件（ALSA UCM、传感器配置）
+│   │   ├── alsa-ucm-xiaomi-sheng/
+│   │   └── xiaomi-sheng-sensors/
+│   └── install/                   #   需要安装的系统集成文件（systemd、udev 规则）
+│       ├── fastrpc/
+│       ├── xiaomi-mipps-auth/
+│       ├── xiaomi-sheng-devauth/
+│       ├── xiaomi-sheng-fingerprint/
+│       ├── xiaomi-sheng-keyboard-helper/
+│       ├── xiaomi-sheng-sensors/
+│       └── xiaomi-sheng-thp/
 ├── scripts/
-│   ├── fetch-sources.sh          # ① 从 ianchb/debian-sheng clone 并提取文件
+│   ├── config.sh                 # 全局配置（用户可编辑）
+│   ├── package-files.sh          # ① 将 files/{direct,install}/ 打包为 files.tar.gz
 │   ├── build-pkgs.sh             # ② 按依赖拓扑序在 clean chroot 中构建
 │   ├── build-repo.sh             # ③ 创建本地 pacman 仓库
 │   └── mkrootfs.sh               # ④ pacstrap 引导 + 生成 rootfs.img
-├── pkgs/                         # 12 个 PKGBUILD 包（Arch Linux 规范）
+├── pkgs/                         # 13 个 PKGBUILD 包（Arch Linux 规范）
 │   ├── fastrpc/                  #   Qualcomm FastRPC DSP 通信
 │   ├── libssc/                   #   Qualcomm Sensor Core 库
 │   ├── iio-sensor-proxy/         #   IIO→D-Bus 代理 (+SSC 支持)
@@ -68,34 +81,35 @@ ROOTFS_USER="alarm"
 ROOTFS_SIZE_MB=4096
 ```
 
-### 4.2 fetch-sources.sh — 提取源文件
+### 4.2 package-files.sh — 打包本地预置文件
 
 ```bash
 #!/bin/bash
-# 作用：从 ianchb/debian-sheng 提取 PKGBUILD 引用的本地文件
-# 输入：无（自动 clone）
-# 输出：补足 pkgs/ 下缺失的 source 文件
+# 作用：将 files/{direct,install}/<pkg>/ 下的预置文件合并打包为 pkgs/<pkg>/files.tar.gz
+# 输入：files/{direct,install}/ 中各子目录
+# 输出：pkgs/*/files.tar.gz
 ```
 
 **操作**：
-1. `git clone --depth=1 https://github.com/ianchb/debian-sheng /tmp/debian-sheng-src`
-2. 提取文件映射：
+1. 遍历 `files/{direct,install}/` 下每个包目录（取并集）
+2. 合并到临时目录后打包为 `pkgs/<pkg>/files.tar.gz`（排除 `preprocess.sh`）
+3. PKGBUILD 通过 `source=("files.tar.gz")` 引用
 
-| 来源 (debian-sheng) | 目标 (arch-xiaomi-sheng) |
+**文件映射**：
+
+| 来源 (debian-sheng) | 目标 (files/) |
 |---|---|
-| `patches/adsprpcd-sensorspd.service` | `pkgs/fastrpc/adsprpcd-sensorspd.service` |
-| `patches/wait_for_qmi_service.patch` | `pkgs/libssc/wait_for_qmi_service.patch` |
-| `sheng-sensors-files/` (整个目录) | `pkgs/xiaomi-sheng-sensors/sheng-sensors-files/` |
-
-3. 清理临时目录
-
-**幂等**：再次运行会覆盖更新。
+| `patches/adsprpcd-sensorspd.service` | `files/install/fastrpc/adsprpcd_sensorspd.service`（文件名 `-` → `_`） |
+| `sheng-sensors-files/usr/share/qcom/` | `files/direct/xiaomi-sheng-sensors/usr/share/` |
+| `sheng-sensors-files/usr/lib/` (systemd + udev) | `files/install/xiaomi-sheng-sensors/lib/`（drop-in 服务名修正） |
+| `sheng-devauth/` 中 .service + qtee.conf | `files/install/xiaomi-sheng-devauth/usr/lib/systemd/system/` |
+| `usr/share/alsa/ucm2/` | `files/direct/alsa-ucm-xiaomi-sheng/usr/` |
 
 ### 4.3 build-pkgs.sh — 构建包
 
 ```bash
 #!/bin/bash
-# 作用：按拓扑序在 clean chroot 中构建全部 12 个包
+# 作用：按拓扑序在 clean chroot 中构建全部 13 个包
 # 输入：config.sh + pkgs/*/PKGBUILD
 # 输出：out/pkgs/*.pkg.tar.xz
 ```
@@ -198,6 +212,6 @@ Server = file:///path/to/out/repo
 | 脚本拆法 | 4 脚本（fetch/build/repo/mkrootfs） | 关注点分离，可独立调试每一步 |
 | 构建环境 | clean chroot (makechrootpkg) | Arch 规范，避免宿主污染 |
 | 内核 | 仅预编译二进制 | 用户选择，避免全量内核编译 |
-| 源文件获取 | 自动 clone debian-sheng | 上游更新时只需重新 fetch，不持久化冗余副本 |
+| 源文件获取 | 本地 files/{direct,install}/ 维护（package-files.sh 打包） | 不再依赖运行时 clone，所有预置文件版本受控 |
 | rootfs 配置 | config.sh 单文件 | 简单可控，所有参数集中管理 |
 | 包构建方式 | PKGBUILD | Arch Linux 标准，社区熟悉 |

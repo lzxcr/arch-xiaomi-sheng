@@ -42,14 +42,24 @@ pacman -S --needed base-devel git arch-install-scripts devtools
 make all
 
 # 或分步执行
-make build    # ① 在 clean chroot 中按拓扑序构建所有包
-make repo     # ② 创建本地 pacman 仓库
-make rootfs   # ③ 用 pacstrap 组装可刷写的 rootfs.img
+./scripts/package-files.sh   # ① 打包 files/ 预置文件
+make build                   # ② 在 clean chroot 中按拓扑序构建所有包
+make repo                    # ③ 创建本地 pacman 仓库
+make rootfs                  # ④ 用 pacstrap 组装可刷写的 rootfs.img
 ```
 
 ### 分步说明
 
-**步骤 ① — build-pkgs.sh**
+**步骤 ① — package-files.sh**
+
+将 `files/{direct,install}/` 下各包目录合并打包为 `pkgs/<pkg>/files.tar.gz`，供 PKGBUILD 引用。
+
+```bash
+./scripts/package-files.sh           # 打包所有包
+./scripts/package-files.sh --pkg fastrpc  # 仅打包指定包
+```
+
+**步骤 ② — build-pkgs.sh**
 
 按依赖拓扑分 4 个 tier 依次构建：
 
@@ -68,11 +78,11 @@ Tier 3: 剩余 6 个包（无内部交叉依赖）
 ./scripts/build-pkgs.sh --skip linux-xiaomi-sheng  # 跳过指定包
 ```
 
-**步骤 ② — build-repo.sh**
+**步骤 ③ — build-repo.sh**
 
 将所有构建好的 `.pkg.tar.*` 注册为本地 pacman 仓库（`out/repo/sheng.db.tar.gz`），并生成 pacman.conf 片段。
 
-**步骤 ③ — mkrootfs.sh**
+**步骤 ④ — mkrootfs.sh**
 
 用 pacstrap 创建 ext4 格式的 rootfs 镜像：
 
@@ -179,18 +189,22 @@ fastboot reboot
 
 ```
 arch-xiaomi-sheng/
-├── config.sh                         # 全局构建配置
 ├── Makefile                          # 便捷入口
 ├── files/                            # 本地维护的预置文件
-│   ├── fastrpc/
-│   ├── xiaomi-sheng-sensors/
-│   ├── alsa-ucm-xiaomi-sheng/
-│   ├── xiaomi-mipps-auth/
-│   ├── xiaomi-sheng-keyboard-helper/
-│   ├── xiaomi-sheng-thp/
-│   └── xiaomi-sheng-fingerprint/
+│   ├── direct/                       #   直接拷贝的数据文件（ALSA UCM、传感器配置）
+│   │   ├── alsa-ucm-xiaomi-sheng/
+│   │   └── xiaomi-sheng-sensors/
+│   └── install/                      #   需要安装的系统集成文件（systemd 单元、udev 规则）
+│       ├── fastrpc/
+│       ├── xiaomi-mipps-auth/
+│       ├── xiaomi-sheng-devauth/
+│       ├── xiaomi-sheng-fingerprint/
+│       ├── xiaomi-sheng-keyboard-helper/
+│       ├── xiaomi-sheng-sensors/
+│       └── xiaomi-sheng-thp/
 ├── scripts/
-│   ├── package-files.sh              # 将 files/ 打包为 pkgs/<pkg>/files.tar.gz
+│   ├── config.sh                     # 全局构建配置
+│   ├── package-files.sh              # 将 files/{direct,install}/ 打包为 pkgs/<pkg>/files.tar.gz
 │   ├── build-pkgs.sh                 # ① 按拓扑序构建包
 │   ├── build-repo.sh                 # ② 创建本地仓库
 │   └── mkrootfs.sh                   # ③ 组装 rootfs 镜像
@@ -222,7 +236,7 @@ arch-xiaomi-sheng/
 ## 维护说明
 
 - 更新预编译内核：修改 `config.sh` 中的 `KERNEL_PREBUILT_TAG`
-- `files/` 中的本地文件更新后，运行 `./scripts/package-files.sh` 重新打包 `files.tar.gz`
+- `files/{direct,install}/` 中的本地文件更新后，运行 `./scripts/package-files.sh` 重新打包 `files.tar.gz`
 - 所有包使用 `sha256sums=('SKIP')`（因上游未提供校验和文件），实际构建时通过 HTTPS 传输保证完整性
 - 在 `makechrootpkg` clean chroot 环境下构建时，`fakeroot` 自动处理文件所属权，无需显式 `chown`
 

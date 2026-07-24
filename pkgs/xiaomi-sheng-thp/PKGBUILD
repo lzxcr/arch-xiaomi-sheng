@@ -35,6 +35,6 @@ package() {
   cd "${pkgname}-${pkgver}"
   make DESTDIR="${pkgdir}" LIBEXECDIR=/usr/lib/xiaomi-sheng-thp install
 
-  install -Dm0644 "${srcdir}/files/${pkgname}/systemd/xiaomi-sheng-thp.service" \
+  install -Dm0644 "${srcdir}/systemd/xiaomi-sheng-thp.service" \
     "${pkgdir}/usr/lib/systemd/system/xiaomi-sheng-thp.service"
 }

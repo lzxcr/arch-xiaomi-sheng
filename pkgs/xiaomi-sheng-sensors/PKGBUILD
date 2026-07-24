@@ -11,5 +11,12 @@ source=("files.tar.gz")
 sha256sums=('SKIP')
 
 package() {
-  cp -dr --no-preserve=ownership "${srcdir}/files/${pkgname}/usr" "${pkgdir}/"
+  # 直接拷贝的数据部分（传感器配置文件）
+  cp -dr --no-preserve=ownership "${srcdir}/usr/share" "${pkgdir}/"
+
+  # 需要安装的系统集成文件
+  install -Dm644 "${srcdir}/lib/systemd/system/iio-sensor-proxy.service.d/10-sheng-sensors.conf" \
+    "${pkgdir}/usr/lib/systemd/system/iio-sensor-proxy.service.d/10-sheng-sensors.conf"
+  install -Dm644 "${srcdir}/lib/udev/rules.d/81-sheng-ssc-sensors.rules" \
+    "${pkgdir}/usr/lib/udev/rules.d/81-sheng-ssc-sensors.rules"
 }

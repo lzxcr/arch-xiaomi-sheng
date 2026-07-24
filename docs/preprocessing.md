@@ -1,24 +1,25 @@
 # 预处理操作记录
 
-每个 `files/<pkg>/` 中的文件相对于上游原始文件所做的预处理操作记录。所有预处理已在文件提交前完成，`files/` 下不再包含 `preprocess.sh` 脚本。
+每个 `files/{direct,install}/<pkg>/` 中的文件相对于上游原始文件所做的预处理操作记录。所有预处理已在文件提交前完成，`files/` 下不再包含 `preprocess.sh` 脚本。
 
 ---
 
-## fastrpc
+## fastrpc (install/)
 
 | 上游来源 | 预处理操作 |
 |----------|-----------|
-| `ianchb/debian-sheng` / `patches/adsprpcd-sensorspd.service` | 无（直接复制） |
+| `ianchb/debian-sheng` / `patches/adsprpcd-sensorspd.service` | 文件名 `-` → `_`（与安装目标名一致） |
 
 ---
 
 ## xiaomi-sheng-sensors
 
-| 上游来源 | 预处理操作 |
-|----------|-----------|
-| `ianchb/debian-sheng` / `sheng-sensors-files/` | 移除 `usr/lib/systemd/` 目录 |
+| 位置 | 上游来源 | 预处理操作 |
+|------|----------|-----------|
+| `direct/` | `ianchb/debian-sheng` / `sheng-sensors-files/usr/share/qcom/` | 无（传感器配置数据直接复制） |
+| `install/` | `ianchb/debian-sheng` / `sheng-sensors-files/usr/lib/` | `10-sheng-sensors.conf` 中 `adsprpcd-sensorspd` → `adsprpcd_sensorspd` |
 
-说明：从 debian-sheng 复制传感器配置文件，按 PKGBUILD 规则移除 systemd 单元目录。
+说明：从 debian-sheng 复制传感器配置文件，按 PKGBUILD 规则将 systemd 单元中的服务名从 `adsprpcd-sensorspd` 修正为 `adsprpcd_sensorspd`。
 
 ---
 
@@ -73,3 +74,11 @@
 ## libssc
 
 `wait_for_qmi_service.patch` 已移除 — 上游（libssc v0.4.4）已修复 QMI 服务等待逻辑，不再需要补丁。
+
+---
+
+## xiaomi-sheng-devauth
+
+| 上游来源 | 预处理操作 |
+|----------|-----------|
+| `ianchb/debian-sheng` / `sheng-devauth/` | `sheng-devauth.service` 和 `qtee.conf` 从 debian-sheng 提取，无额外处理 |

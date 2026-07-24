@@ -1,7 +1,7 @@
 [Unit]
 Description=Xiaomi sheng keyboard fold angle helper
-Wants=adsprpcd-sensorspd.service
-After=adsprpcd-sensorspd.service
+Wants=adsprpcd_sensorspd.service
+After=adsprpcd_sensorspd.service
 StartLimitIntervalSec=0
 
 [Service]

@@ -1,5 +1,7 @@
 # arch-xiaomi-sheng 构建系统实现计划
 
+> **⚠️ 历史文档**：本计划完成于 2026-01-23，记录了原始 4 脚本构建系统的设计过程。当前项目已演进为 `files/{direct,install}/` + `package-files.sh` 架构，不再使用 `fetch-sources.sh`。请以 [DESIGN.md](../DESIGN.md) 和 [README.md](../../README.md) 为准。
+>
 > **For agentic workers:** 使用 superpowers:executing-plans 逐步实现。
 
 **Goal:** 为 arch-xiaomi-sheng 实现 4 脚本构建系统：config.sh → fetch-sources.sh → build-pkgs.sh → build-repo.sh → mkrootfs.sh
@@ -102,14 +104,14 @@ git clone --depth=1 "$REPO_URL" "$TMP_CLONE"
 
 echo "==> 提取文件到 pkgs/ ..."
 
-# 1. adsprpcd-sensorspd.service → pkgs/fastrpc/
+# 1. adsprpcd-sensorspd.service → pkgs/fastrpc/ (安装为目标名 adsprpcd_sensorspd.service)
 mkdir -p "$PKG_DIR/fastrpc"
 if [ -f "$TMP_CLONE/patches/adsprpcd-sensorspd.service" ]; then
   cp "$TMP_CLONE/patches/adsprpcd-sensorspd.service" \
-     "$PKG_DIR/fastrpc/adsprpcd-sensorspd.service"
-  echo "  ✓ fastrpc/adsprpcd-sensorspd.service"
+     "$PKG_DIR/fastrpc/adsprpcd_sensorspd.service"
+  echo "  ✓ fastrpc/adsprpcd_sensorspd.service"
 else
-  echo "  ! fastrpc/adsprpcd-sensorspd.service 未找到，已跳过"
+  echo "  ! fastrpc/adsprpcd_sensorspd.service 未找到，已跳过"
 fi
 
 # 2. wait_for_qmi_service.patch → pkgs/libssc/
@@ -148,7 +150,7 @@ Expected: 成功 clone 并提取 3 个文件/目录
 
 - [ ] **Step 4: 验证提取结果**
 
-Run: `ls -la pkgs/fastrpc/adsprpcd-sensorspd.service pkgs/libssc/wait_for_qmi_service.patch && test -d pkgs/xiaomi-sheng-sensors/sheng-sensors-files && echo "所有文件已就绪"`
+Run: `ls -la pkgs/fastrpc/adsprpcd_sensorspd.service pkgs/libssc/wait_for_qmi_service.patch && test -d pkgs/xiaomi-sheng-sensors/sheng-sensors-files && echo "所有文件已就绪"`
 Expected: 显示 3 个文件/目录都存在
 
 - [ ] **Step 5: Commit**
