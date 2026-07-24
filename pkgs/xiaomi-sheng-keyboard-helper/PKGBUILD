@@ -27,9 +27,9 @@ package() {
   cd "${pkgname}-${pkgver}"
   make DESTDIR="${pkgdir}" install
 
-  install -Dm0644 "${srcdir}/systemd/xiaomi-sheng-keyboard-helper-angle.service" \
+  install -Dm0644 "${srcdir}/xiaomi-sheng-keyboard-helper-angle.service" \
     "${pkgdir}/usr/lib/systemd/system/xiaomi-sheng-keyboard-helper-angle.service"
-  install -Dm0644 "${srcdir}/systemd-user/xiaomi-sheng-keyboard-helper-micmute.service" \
+  install -Dm0644 "${srcdir}/xiaomi-sheng-keyboard-helper-micmute.service" \
     "${pkgdir}/usr/lib/systemd/user/xiaomi-sheng-keyboard-helper-micmute.service"
 
   install -Dm0644 README.md "${pkgdir}/usr/share/doc/${pkgname}/README.md"

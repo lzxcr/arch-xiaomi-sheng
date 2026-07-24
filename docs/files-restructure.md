@@ -28,37 +28,24 @@ files/
 │               └── sns_reg_version
 ├── install/                             # 需要安装的系统集成文件（install -Dm644）
 │   ├── fastrpc/
-│   │   └── adsprpcd_sensorspd.service    # systemd 单元文件
+│   │   └── adsprpcd_sensorspd.service    # systemd 单元文件（含 qteesupplicant 依赖）
 │   ├── xiaomi-mipps-auth/
-│   │   ├── xiaomi-mipps-auth.service     # sed 已预应用：/usr/libexec/ → /usr/lib/xiaomi-mipps-auth/
+│   │   ├── xiaomi-mipps-auth.service     # sed 已预应用
 │   │   └── 90-xiaomi-mipps-auth.rules    # 同上
 │   ├── xiaomi-sheng-keyboard-helper/
-│   │   ├── systemd/
-│   │   │   └── xiaomi-sheng-keyboard-helper-angle.service
-│   │   └── systemd-user/
-│   │       └── xiaomi-sheng-keyboard-helper-micmute.service
+│   │   ├── xiaomi-sheng-keyboard-helper-angle.service
+│   │   └── xiaomi-sheng-keyboard-helper-micmute.service
 │   ├── xiaomi-sheng-thp/
-│   │   └── systemd/
-│   │       └── xiaomi-sheng-thp.service
+│   │   └── xiaomi-sheng-thp.service
 │   ├── xiaomi-sheng-fingerprint/
-│   │   ├── systemd/
-│   │   │   ├── sfsconfig.service
-│   │   │   ├── qteesupplicant.service
-│   │   │   └── fprintd.service.d/
-│   │   │       └── 10-xiaomi-sheng-fpc1553.conf
-│   │   └── udev/
-│   │       └── 99-qcomtee-fpc.rules
+│   │   ├── sfsconfig.service
+│   │   ├── qteesupplicant.service
+│   │   ├── 10-xiaomi-sheng-fpc1553.conf
+│   │   └── 99-qcomtee-fpc.rules
 │   ├── xiaomi-sheng-devauth/
-│   │   └── usr/lib/systemd/system/
-│   │       ├── sheng-devauth.service
-│   │       └── sheng-devauth.service.d/
-│   │           └── qtee.conf
+│   │   └── sheng-devauth.service         # 含 qtee.conf 合并的依赖
 │   └── xiaomi-sheng-sensors/
-│       └── lib/                          # 不含 usr/ 前缀（PKGBUILD 中 install -D 指定目标路径）
-│           ├── systemd/system/iio-sensor-proxy.service.d/
-│           │   └── 10-sheng-sensors.conf
-│           └── udev/rules.d/
-│               └── 81-sheng-ssc-sensors.rules
+│       └── 81-sheng-ssc-sensors.rules
 ```
 
 ## 3. 文件分类

@@ -17,9 +17,9 @@
 | 位置 | 上游来源 | 预处理操作 |
 |------|----------|-----------|
 | `direct/` | `ianchb/debian-sheng` / `sheng-sensors-files/usr/share/qcom/` | 无（传感器配置数据直接复制） |
-| `install/` | `ianchb/debian-sheng` / `sheng-sensors-files/usr/lib/` | `10-sheng-sensors.conf` 中 `adsprpcd-sensorspd` → `adsprpcd_sensorspd` |
+| `install/` | `ianchb/debian-sheng` / `sheng-sensors-files/usr/lib/udev/rules.d/` | `81-sheng-ssc-sensors.rules` 无修改 |
 
-说明：从 debian-sheng 复制传感器配置文件，按 PKGBUILD 规则将 systemd 单元中的服务名从 `adsprpcd-sensorspd` 修正为 `adsprpcd_sensorspd`。
+说明：从 debian-sheng 复制传感器配置文件。`10-sheng-sensors.conf`（仅延缓 iio-sensor-proxy 启动 8s）已移除。
 
 ---
 
@@ -46,8 +46,8 @@
 
 | 上游来源 | 版本 | 文件 | 预处理 |
 |----------|------|------|--------|
-| `ianchb/xiaomi-sheng-keyboard-helper` | v0.2.0 | `systemd/*.service` | `/usr/libexec/` → `/usr/lib/xiaomi-sheng-keyboard-helper/` |
-| | | `systemd-user/*.service` | 同上 |
+| `ianchb/xiaomi-sheng-keyboard-helper` | v0.2.0 | `xiaomi-sheng-keyboard-helper-angle.service` | `/usr/libexec/` → `/usr/lib/xiaomi-sheng-keyboard-helper/` |
+| | | `xiaomi-sheng-keyboard-helper-micmute.service` | 同上 |
 
 ---
 
@@ -55,7 +55,7 @@
 
 | 上游来源 | 版本 | 文件 | 预处理 |
 |----------|------|------|--------|
-| `ianchb/xiaomi-sheng-thp` | v0.3.6 | `systemd/xiaomi-sheng-thp.service` | `/usr/libexec/xiaomi-sheng-thp/xiaomi-sheng-thp` → `/usr/lib/xiaomi-sheng-thp/xiaomi-sheng-thp` |
+| `ianchb/xiaomi-sheng-thp` | v0.3.6 | `xiaomi-sheng-thp.service` | `/usr/libexec/xiaomi-sheng-thp/xiaomi-sheng-thp` → `/usr/lib/xiaomi-sheng-thp/xiaomi-sheng-thp` |
 
 ---
 
@@ -63,11 +63,11 @@
 
 | 上游来源 | 版本 | 文件 | 预处理 |
 |----------|------|------|--------|
-| `ianchb/xiaomi-sheng-fingerprint` | v0.1.4 | `systemd/sfsconfig.service` | `/usr/libexec` → `/usr/lib/xiaomi-sheng-fingerprint` |
-| | | `systemd/qteesupplicant.service` | ① `/usr/libexec` → `/usr/lib/xiaomi-sheng-fingerprint` |
+| `ianchb/xiaomi-sheng-fingerprint` | v0.1.4 | `sfsconfig.service` | `/usr/libexec` → `/usr/lib/xiaomi-sheng-fingerprint` |
+| | | `qteesupplicant.service` | ① `/usr/libexec` → `/usr/lib/xiaomi-sheng-fingerprint` |
 | | | | ② `/usr/lib/aarch64-linux-gnu/qtee-listeners` → `/usr/lib/qtee-listeners` |
-| | | `systemd/fprintd.service.d/10-xiaomi-sheng-fpc1553.conf` | 无 |
-| | | `udev/99-qcomtee-fpc.rules` | 无 |
+| | | `10-xiaomi-sheng-fpc1553.conf` | 无 |
+| | | `99-qcomtee-fpc.rules` | 无 |
 
 ---
 
@@ -81,4 +81,4 @@
 
 | 上游来源 | 预处理操作 |
 |----------|-----------|
-| `ianchb/debian-sheng` / `sheng-devauth/` | `sheng-devauth.service` 和 `qtee.conf` 从 debian-sheng 提取，无额外处理 |
+| `ianchb/debian-sheng` / `sheng-devauth/` | `sheng-devauth.service` 中内联 `Requires=qteesupplicant.service` 和 `After=qteesupplicant.service`（合并 debian-sheng 中 `qtee.conf` drop-in），移除单独的 qtee.conf |

@@ -1,5 +1,7 @@
 [Unit]
 Description=Xiaomi DevAuth Service
+Requires=qteesupplicant.service
+After=qteesupplicant.service
 
 [Service]
 Type=simple

@@ -28,9 +28,7 @@ package() {
   cd "${_pkgname}"
   install -Dm755 xiaomi_devauth "${pkgdir}/usr/bin/xiaomi_devauth"
 
-  # 从 files.tar.gz 安装 systemd 单元及服务降级配置
-  install -Dm644 "${srcdir}/usr/lib/systemd/system/sheng-devauth.service" \
+  # 从 files.tar.gz 安装 systemd 单元（含 qteesupplicant 依赖）
+  install -Dm644 "${srcdir}/sheng-devauth.service" \
     "${pkgdir}/usr/lib/systemd/system/sheng-devauth.service"
-  install -Dm644 "${srcdir}/usr/lib/systemd/system/sheng-devauth.service.d/qtee.conf" \
-    "${pkgdir}/usr/lib/systemd/system/sheng-devauth.service.d/qtee.conf"
 }

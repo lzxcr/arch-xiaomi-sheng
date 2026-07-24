@@ -60,17 +60,17 @@ package() {
   done
 
   install -d -m 0755 "${pkgdir}/usr/lib/systemd/system/fprintd.service.d"
-  install -m 0644 "${srcdir}/systemd/fprintd.service.d/10-xiaomi-sheng-fpc1553.conf" \
+  install -m 0644 "${srcdir}/10-xiaomi-sheng-fpc1553.conf" \
     "${pkgdir}/usr/lib/systemd/system/fprintd.service.d/"
 
-  install -m 0644 "${srcdir}/systemd/sfsconfig.service" \
+  install -m 0644 "${srcdir}/sfsconfig.service" \
     "${pkgdir}/usr/lib/systemd/system/sfsconfig.service"
 
-  install -m 0644 "${srcdir}/systemd/qteesupplicant.service" \
+  install -m 0644 "${srcdir}/qteesupplicant.service" \
     "${pkgdir}/usr/lib/systemd/system/qteesupplicant.service"
 
   install -d -m 0755 "${pkgdir}/usr/lib/udev/rules.d"
-  install -m 0644 "${srcdir}/udev/99-qcomtee-fpc.rules" \
+  install -m 0644 "${srcdir}/99-qcomtee-fpc.rules" \
     "${pkgdir}/usr/lib/udev/rules.d/"
   install -d -m 0755 "${pkgdir}/usr/share/doc/${pkgname}"
   install -m 0644 README.md UPSTREAM_CHANGES.md "${pkgdir}/usr/share/doc/${pkgname}/"
