@@ -1,0 +1,17 @@
+# Maintainer: Jacobi Lie <jssnlzxcr@gmail.com>
+pkgname=mkinitcpio-bootflash
+pkgver=1.0.0
+pkgrel=1
+pkgdesc="mkinitcpio post-generation hook: build boot.img and flash both A/B slots"
+arch=('any')
+url="https://github.com/ianchb/arch-xiaomi-sheng"
+license=('GPL-2.0-only')
+depends=('android-tools' 'sed' 'coreutils' 'mkinitcpio')
+source=("files.tar.gz")
+sha256sums=('SKIP')
+
+package() {
+  install -Dm755 "${srcdir}/bootflash" "${pkgdir}/usr/bin/bootflash"
+  install -Dm644 "${srcdir}/mkinitcpio-bootflash.conf" \
+    "${pkgdir}/etc/mkinitcpio.d/mkinitcpio-bootflash.conf"
+}
