@@ -1,0 +1,23 @@
+# Maintainer: Jacobi Lie <jssnlzxcr@gmail.com>
+pkgname=xiaomi-charger-mode
+pkgver=0.20
+pkgrel=1
+pkgdesc="Charger mode user-space program for Xiaomi Pad 6S Pro (sheng)"
+arch=('any')
+url="https://github.com/ianchb/xiaomi-charger-mode"
+license=('GPL-2.0-only')
+depends=('python' 'systemd' 'util-linux')
+optdepends=('xiaomi-mipps-auth: automatic PPS charger authentication')
+source=("${pkgname}-${pkgver}.tar.gz::${url}/archive/refs/tags/${pkgver}.tar.gz"
+        "files.tar.gz")
+sha256sums=('SKIP'
+            'SKIP')
+
+package() {
+  cd "${srcdir}/${pkgname}-${pkgver}"
+  install -Dm755 xiaomi-charger-mode \
+    "${pkgdir}/usr/lib/${pkgname}/xiaomi-charger-mode"
+
+  install -Dm644 "${srcdir}/xiaomi-charger-mode.service" \
+    "${pkgdir}/usr/lib/systemd/system/xiaomi-charger-mode.service"
+}

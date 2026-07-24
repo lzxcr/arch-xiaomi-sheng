@@ -8,6 +8,7 @@ url="https://github.com/qualcomm/fastrpc"
 license=('BSD-3-Clause')
 depends=('systemd' 'libyaml' 'libbsd')
 makedepends=('autoconf' 'automake' 'libtool' 'pkgconf')
+options=('!strip')
 source=("${pkgname}-${pkgver}.tar.gz::${url}/archive/refs/tags/v${pkgver}.tar.gz"
         "files.tar.gz")
 sha256sums=('SKIP'

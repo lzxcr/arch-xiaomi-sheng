@@ -17,6 +17,7 @@ Arch Linux ARM 软件包集合和构建系统，为 **Xiaomi Pad 6S Pro 12.4 (SM
 | `linux-firmware-sheng` | 固件 blob（替代 linux-firmware-qcom 等） | [ianchb/sheng-firmware](https://github.com/ianchb/sheng-firmware) |
 | `xiaomi-sheng-devauth` | 小米官方键盘认证守护进程 | [ianchb/sheng_devauth](https://github.com/ianchb/sheng_devauth) |
 | `xiaomi-mipps-auth` | MiPPS/PPS 充电器自动认证 | [ianchb/xiaomi-mipps-auth](https://github.com/ianchb/xiaomi-mipps-auth) |
+| `xiaomi-charger-mode` | 充电模式用户态程序（framebuffer 充电界面） | [ianchb/xiaomi-charger-mode](https://github.com/ianchb/xiaomi-charger-mode) |
 | `xiaomi-pen-status` | 小米 Focus 手写笔状态托盘工具 | [ianchb/xiaomi-pen-status](https://github.com/ianchb/xiaomi-pen-status) |
 | `xiaomi-sheng-fingerprint` | 指纹 (FPC1553 QTEE) 支持 | [ianchb/xiaomi-sheng-fingerprint](https://github.com/ianchb/xiaomi-sheng-fingerprint) |
 | `xiaomi-sheng-keyboard-helper` | 键盘辅助工具 | [ianchb/xiaomi-sheng-keyboard-helper](https://github.com/ianchb/xiaomi-sheng-keyboard-helper) |
@@ -152,6 +153,10 @@ sudo systemctl start  qteesupplicant.service
 sudo systemctl enable xiaomi-mipps-auth.service
 sudo systemctl start  xiaomi-mipps-auth.service
 
+# 充电模式（关机状态下充电显示界面）
+# 仅在内核 cmdline 包含 androidboot.mode=charger 时激活
+sudo systemctl enable xiaomi-charger-mode.service
+
 # 触控处理守护进程
 sudo systemctl enable xiaomi-sheng-thp.service
 sudo systemctl start  xiaomi-sheng-thp.service
@@ -218,6 +223,7 @@ arch-xiaomi-sheng/
 │   ├── linux-firmware-sheng/
 │   ├── xiaomi-sheng-devauth/
 │   ├── xiaomi-mipps-auth/
+│   ├── xiaomi-charger-mode/
 │   ├── xiaomi-pen-status/
 │   ├── xiaomi-sheng-fingerprint/
 │   ├── xiaomi-sheng-keyboard-helper/
