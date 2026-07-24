@@ -8,7 +8,8 @@
 #   Tier 0: fastrpc libssc linux-firmware-sheng linux-xiaomi-sheng
 #   Tier 1: iio-sensor-proxy (depends: libssc)
 #   Tier 2: xiaomi-sheng-sensors (depends: iio-sensor-proxy)
-#   Tier 3: xiaomi-sheng-devauth xiaomi-mipps-auth xiaomi-pen-status
+#   Tier 3: alsa-ucm-xiaomi-sheng xiaomi-charger-mode mkinitcpio-bootflash
+#           xiaomi-sheng-devauth xiaomi-mipps-auth xiaomi-pen-status
 #           xiaomi-sheng-fingerprint xiaomi-sheng-keyboard-helper xiaomi-sheng-thp
 #
 
@@ -25,7 +26,7 @@ declare -A PKG_TIERS
 PKG_TIERS[0]="fastrpc libssc linux-firmware-sheng linux-xiaomi-sheng"
 PKG_TIERS[1]="iio-sensor-proxy"
 PKG_TIERS[2]="xiaomi-sheng-sensors"
-PKG_TIERS[3]="xiaomi-sheng-devauth xiaomi-mipps-auth xiaomi-pen-status xiaomi-sheng-fingerprint xiaomi-sheng-keyboard-helper xiaomi-sheng-thp"
+PKG_TIERS[3]="alsa-ucm-xiaomi-sheng xiaomi-charger-mode mkinitcpio-bootflash xiaomi-sheng-devauth xiaomi-mipps-auth xiaomi-pen-status xiaomi-sheng-fingerprint xiaomi-sheng-keyboard-helper xiaomi-sheng-thp"
 
 ALL_PKGS=""
 for t in 0 1 2 3; do ALL_PKGS="$ALL_PKGS ${PKG_TIERS[$t]}"; done
@@ -103,6 +104,12 @@ init_chroot() {
 }
 
 main() {
+  # 清理旧构建产物 + 重新打包本地源文件
+  msg "预处理: 清理构建产物 ..."
+  "$SCRIPT_DIR/clean.sh" --keep-cache
+  msg "预处理: 打包 files/ → files.tar.gz ..."
+  "$SCRIPT_DIR/package-files.sh"
+
   mkdir -p "$OUT_PKGS_DIR"
   check_prereqs
   init_chroot
@@ -146,13 +153,6 @@ main() {
       find "$pkgdir" -maxdepth 1 -name '*.pkg.tar.*' -exec mv {} "$OUT_PKGS_DIR/" \;
       (cd "$pkgdir" && rm -f *.pkg.tar.*)
 
-      local built_pkg
-      built_pkg=$(find "$OUT_PKGS_DIR" -name "${pkg}-*.pkg.tar.*" | head -1)
-      if [ -n "$built_pkg" ]; then
-        msg "  安装 $pkg 到 chroot（供后续 tier）..."
-        sudo arch-nspawn "$BUILD_CHROOT/root" \
-          pacman -U --noconfirm "$built_pkg" 2>/dev/null || true
-      fi
       msg "✓ $pkg 构建完成"
     done
   done

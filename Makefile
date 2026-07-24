@@ -8,22 +8,21 @@ SHELL := /bin/bash
 
 all: build repo rootfs
 
-# ② 构建所有包
+# ① 构建所有包
 build:
-	@echo "==> [2/4] 构建包 ..."
+	@echo "==> [1/3] 构建包 ..."
 	@bash scripts/build-pkgs.sh
 
-# ③ 创建本地仓库
+# ② 创建本地仓库
 repo:
-	@echo "==> [3/4] 创建仓库 ..."
+	@echo "==> [2/3] 创建仓库 ..."
 	@bash scripts/build-repo.sh
 
-# ④ 组装 rootfs
+# ③ 组装 rootfs
 rootfs:
-	@echo "==> [4/4] 组装 rootfs 镜像 ..."
+	@echo "==> [3/3] 组装 rootfs 镜像 ..."
 	@bash scripts/mkrootfs.sh
 
 # 清理所有构建产物
 clean:
-	rm -rf out/pkgs out/repo out/rootfs out/sheng-repo.conf
-	@echo "已清理构建产物"
+	@bash scripts/clean.sh

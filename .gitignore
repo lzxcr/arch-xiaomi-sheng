@@ -8,15 +8,16 @@
 # 构建产物（makepkg 输出的 .pkg.tar.* 包文件）
 *.pkg.tar.*
 
+# 本地打包的源文件（由 package-files.sh 生成）
+files.tar.gz
+
 # 下载的远程源码包（非本地维护的源文件）
 pkgs/*/*.tar.gz
 pkgs/*/*.deb
 pkgs/*/*.deb.part
-pkgs/*/sheng-firmware/
-pkgs/*/sheng_devauth/
 
-# 但本地维护的源文件需要跟踪
-!pkgs/xiaomi-sheng-sensors/sheng-sensors-files.tar.gz
+# 嵌入式 git 仓库（makepkg clone）
+pkgs/*/src/*/
 
 # 日志
 *.log
