@@ -12,10 +12,8 @@ source=("files.tar.gz")
 sha256sums=('SKIP')
 
 package() {
-  # 直接拷贝的数据部分（传感器配置文件）
-  cp -dr --no-preserve=ownership "${srcdir}/usr/share" "${pkgdir}/"
-
-  # udev 规则（触发 iio-sensor-proxy 传感器发现）
+  cp -dr --no-preserve=ownership "${srcdir}/usr" "${pkgdir}/"
+  
   install -Dm644 "${srcdir}/81-sheng-ssc-sensors.rules" \
     "${pkgdir}/usr/lib/udev/rules.d/81-sheng-ssc-sensors.rules"
 }

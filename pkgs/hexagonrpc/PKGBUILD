@@ -1,0 +1,29 @@
+# Maintainer: Jacobi Lie <jssnlzxcr@gmail.com>
+pkgname=hexagonrpc
+pkgver=r210.5c2c12b
+pkgrel=1
+pkgdesc="Qualcomm Hexagon DSP FastRPC userspace library and daemon"
+arch=('aarch64')
+url="https://github.com/lzxcr/hexagonrpc"
+license=('GPL-3.0-or-later')
+depends=('glibc' 'systemd')
+makedepends=('meson' 'ninja' 'pkgconf' 'json-c' 'git')
+source=("git+${url}.git")
+sha256sums=('SKIP')
+
+pkgver() {
+  cd "${pkgname}"
+  printf "r%s.%s" "$(git rev-list --count HEAD)" "$(git rev-parse --short HEAD)"
+}
+
+build() {
+  cd "${pkgname}"
+  arch-meson build
+  meson compile -C build
+}
+
+package() {
+  cd "${pkgname}"
+  DESTDIR="${pkgdir}" meson install -C build
+  install -Dm644 COPYING "${pkgdir}/usr/share/licenses/${pkgname}/LICENSE"
+}

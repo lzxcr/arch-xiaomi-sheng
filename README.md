@@ -8,7 +8,7 @@ Arch Linux ARM 软件包集合和构建系统，为 **Xiaomi Pad 6S Pro 12.4 (SM
 
 | 包名 | 描述 | 源 |
 |---|---|---|
-| `fastrpc` | Qualcomm FastRPC DSP 通信用户空间库 | [qualcomm/fastrpc](https://github.com/qualcomm/fastrpc) |
+| `hexagonrpc` | Qualcomm Hexagon DSP FastRPC 通信库与守护进程 | [lzxcr/hexagonrpc](https://github.com/lzxcr/hexagonrpc) |
 | `libssc` | Qualcomm Sensor Core 传感器库 | [DylanVanAssche/libssc](https://codeberg.org/DylanVanAssche/libssc) |
 | `iio-sensor-proxy` | IIO 传感器到 D-Bus 的代理（带 SSC 支持） | [hadess/iio-sensor-proxy](https://gitlab.freedesktop.org/hadess/iio-sensor-proxy) |
 | `xiaomi-sheng-sensors` | 小米平板 6S Pro 传感器配置文件 | 从 debian-sheng 提取 |
@@ -57,7 +57,7 @@ make rootfs                  # ④ 用 pacstrap 组装可刷写的 rootfs.img
 
 ```bash
 ./scripts/package-files.sh           # 打包所有包
-./scripts/package-files.sh --pkg fastrpc  # 仅打包指定包
+./scripts/package-files.sh --pkg hexagonrpc  # 仅打包指定包
 ```
 
 **步骤 ② — build-pkgs.sh**
@@ -65,7 +65,7 @@ make rootfs                  # ④ 用 pacstrap 组装可刷写的 rootfs.img
 按依赖拓扑分 4 个 tier 依次构建：
 
 ```
-Tier 0: fastrpc, libssc, linux-firmware-sheng, linux-xiaomi-sheng
+Tier 0: hexagonrpc, libssc, linux-firmware-sheng, linux-xiaomi-sheng
 Tier 1: iio-sensor-proxy (depends: libssc)
 Tier 2: xiaomi-sheng-sensors (depends: iio-sensor-proxy)
 Tier 3: 剩余 6 个包（无内部交叉依赖）
@@ -200,7 +200,7 @@ arch-xiaomi-sheng/
 │   │   ├── alsa-ucm-xiaomi-sheng/
 │   │   └── xiaomi-sheng-sensors/
 │   └── install/                      #   需要安装的系统集成文件（systemd 单元、udev 规则）
-│       ├── fastrpc/
+│       ├── hexagonrpc/
 │       ├── xiaomi-mipps-auth/
 │       ├── xiaomi-sheng-devauth/
 │       ├── xiaomi-sheng-fingerprint/
@@ -214,7 +214,7 @@ arch-xiaomi-sheng/
 │   ├── build-repo.sh                 # ② 创建本地仓库
 │   └── mkrootfs.sh                   # ③ 组装 rootfs 镜像
 ├── pkgs/                             # 13 个 PKGBUILD 包
-│   ├── fastrpc/
+│   ├── hexagonrpc/
 │   ├── libssc/
 │   ├── iio-sensor-proxy/
 │   ├── xiaomi-sheng-sensors/

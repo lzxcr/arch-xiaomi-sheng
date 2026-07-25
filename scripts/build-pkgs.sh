@@ -5,7 +5,7 @@
 # 用法: ./scripts/build-pkgs.sh [--tier N] [--from PKG] [--skip PKG1,PKG2]
 #
 # 依赖拓扑:
-#   Tier 0: fastrpc libssc linux-firmware-sheng linux-xiaomi-sheng
+#   Tier 0: hexagonrpc libssc linux-firmware-sheng linux-xiaomi-sheng
 #   Tier 1: iio-sensor-proxy (depends: libssc)
 #   Tier 2: xiaomi-sheng-sensors (depends: iio-sensor-proxy)
 #   Tier 3: alsa-ucm-xiaomi-sheng xiaomi-charger-mode mkinitcpio-bootflash
@@ -23,7 +23,7 @@ source "$SCRIPT_DIR/config.sh"
 
 # ── 拓扑定义 ──────────────────────────────────────────────
 declare -A PKG_TIERS
-PKG_TIERS[0]="fastrpc libssc linux-firmware-sheng linux-xiaomi-sheng"
+PKG_TIERS[0]="hexagonrpc libssc linux-firmware-sheng linux-xiaomi-sheng"
 PKG_TIERS[1]="iio-sensor-proxy"
 PKG_TIERS[2]="xiaomi-sheng-sensors"
 PKG_TIERS[3]="alsa-ucm-xiaomi-sheng xiaomi-charger-mode mkinitcpio-bootflash xiaomi-sheng-devauth xiaomi-mipps-auth xiaomi-pen-status xiaomi-sheng-fingerprint xiaomi-sheng-keyboard-helper xiaomi-sheng-thp"
