@@ -1,6 +1,6 @@
 # Maintainer: Jacobi Lie <jssnlzxcr@gmail.com>
 pkgname=hexagonrpc
-pkgver=r210.5c2c12b
+pkgver=r211.516a46c
 pkgrel=1
 pkgdesc="Qualcomm Hexagon DSP FastRPC userspace library and daemon"
 arch=('aarch64')
@@ -24,6 +24,16 @@ build() {
 
 package() {
   cd "${pkgname}"
-  DESTDIR="${pkgdir}" meson install -C build
+
+  # meson install — 忽略 man symlink 脚本的 DESTDIR bug
+  # (install-man-symlinks.sh 写 /usr/share/man/ 而非 ${pkgdir}/usr/share/man/)
+  DESTDIR="${pkgdir}" meson install -C build 2>&1 || true
+
+  # 手工补创建 man 符号链接
+  local mandir="${pkgdir}/usr/share/man/man8"
+  for name in adsp adsp-audiopd adsp-sensorspd cdsp sdsp; do
+    ln -sf hexagonrpcd.8 "${mandir}/hexagonrpcd-${name}.8" 2>/dev/null || true
+  done
+
   install -Dm644 COPYING "${pkgdir}/usr/share/licenses/${pkgname}/LICENSE"
 }
