@@ -1,0 +1,80 @@
+// ============================================================================     1
+// Copyright (c) 2021-2022 Qualcomm Technologies, Inc.
+// All Rights Reserved.
+// Confidential and Proprietary - Qualcomm Technologies, Inc.
+// ============================================================================     1
+{
+  "licenseFeaturesIds": [
+    "898"
+  ],
+  "licenseHardwareVersions": [
+    "0xA003",
+    "0xA00D",
+    "0xA00F"
+  ],
+  "licenseeName": "isv_Android CTS_prj_Android CTS 2023chips",
+  "features": [
+    "SV Polynomial"
+  ],
+  "INCLUDE_EXPIRATION_EXTENSION": 1,
+  "licenseExpirationPerpetual": true,
+  "deviceFileName": "898-898-no-exp-2574099444.pfm",
+  "licenseSerial": "35004c4132f99acb89dc408100000180e2ea2d88"
+}
+
+-----BEGIN CERTIFICATE-----
+MIIEfTCCAzGgAwIBAgIUNQBMQTL5msuJ3ECBAAABgOLqLYgwQQYJKoZIhvcNAQEK
+MDSgDzANBglghkgBZQMEAgEFAKEcMBoGCSqGSIb3DQEBCDANBglghkgBZQMEAgEF
+AKIDAgEgMG8xJDAiBgNVBAoMG1F1YWxjb21tIFRlY2hub2xvZ2llcywgSW5jLjEq
+MCgGA1UECwwhUXVhbGNvbW0gQ3J5cHRvZ3JhcGhpYyBPcGVyYXRpb25zMRswGQYD
+VQQDDBJDSExTRSBTaWduaW5nIENlcnQwIBcNNzAwMTAxMDAwMDAxWhgPOTk5OTEy
+MzEyMzU5NTlaMIGGMTIwMAYDVQQDDClpc3ZfQW5kcm9pZCBDVFNfcHJqX0FuZHJv
+aWQgQ1RTIDIwMjNjaGlwczEkMCIGA1UECgwbUXVhbGNvbW0gVGVjaG5vbG9naWVz
+LCBJbmMuMSowKAYDVQQLDCFRdWFsY29tbSBDcnlwdG9ncmFwaGljIE9wZXJhdGlv
+bnMwggEgMAsGCSqGSIb3DQEBAQOCAQ8AMIIBCgKCAQEA////////////////////
+////////////////////////////////////////////////////////////////
+////////////////////////////////////////////////////////////////
+////////////////////////////////////////////////////////////////
+////////////////////////////////////////////////////////////////
+////////////////////////////////////////////////////////////////
+/wIDAQABo4GQMIGNMB8GA1UdIwQYMBaAFIcU6Tcyfr22KPwwamAkEDDYveduMAwG
+A1UdEwEB/wQCMAAwDgYDVR0PAQH/BAQDAgWgMBUGCSsGAQQBiykMAQQIAAAAAAAA
+A4IwHgYKKwYBBAGLKQsBAgQQAAAAAAAAoAMAAKANAACgDzAVBgkrBgEEAYspDAkE
+CAAAAABih+oHMEEGCSqGSIb3DQEBCjA0oA8wDQYJYIZIAWUDBAIBBQChHDAaBgkq
+hkiG9w0BAQgwDQYJYIZIAWUDBAIBBQCiAwIBIAOCAQEAGqwh/1KMM/Kgs3qoL2t4
+Rgo/tQvbpiJTwHoPHUHSKrHfEIL6qo3biCkkbZ2Caygbr0CcATCaqq3zhBFWB9Oq
+kCUfOC41RE0dqzOCnXnHYgIwu2ZWj1poET6B9PFq4zkb11x1GNXKmETxUCZ2SOiT
+kKtY30UwyAGYfMgp2ePkM1092Z3BCzs2IJKG7zLTKvdrl79w6/kAcObqKelCq01J
+t1VdsJLQjpTbmsWm4DSXbUCQi2Bc7E8zKJuxh8OlLTO344X0djTMiHbrmHJ+bCrp
+rq1rPbV74z0mT+UcizlQKYG0VWvc89QPu/Gqu9px5/LHrrIJTPBb9UMD5JigJAFv
+0w==
+-----END CERTIFICATE-----
+
+
+-----BEGIN CERTIFICATE-----
+MIIERTCCAv2gAwIBAgIVdqMEQ1j41p18D3AfzC1TDxRDgyKzMD0GCSqGSIb3DQEB
+CjAwoA0wCwYJYIZIAWUDBAIBoRowGAYJKoZIhvcNAQEIMAsGCWCGSAFlAwQCAaID
+AgEgMIGAMSQwIgYDVQQKDBtRdWFsY29tbSBUZWNobm9sb2dpZXMsIEluYy4xKjAo
+BgNVBAsMIVF1YWxjb21tIENyeXB0b2dyYXBoaWMgT3BlcmF0aW9uczEsMCoGA1UE
+AwwjRmVhdHVyZSBMaWNlbnNlIEF0dGVzdGF0aW9uIFJvb3QgQ0EwHhcNMTgxMjE0
+MDAwMDAxWhcNMjgxMjEzMjM1OTU5WjBvMSQwIgYDVQQKDBtRdWFsY29tbSBUZWNo
+bm9sb2dpZXMsIEluYy4xKjAoBgNVBAsMIVF1YWxjb21tIENyeXB0b2dyYXBoaWMg
+T3BlcmF0aW9uczEbMBkGA1UEAwwSQ0hMU0UgU2lnbmluZyBDZXJ0MIIBIjANBgkq
+hkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEA7TyI/YJ2Mfipye29tcEW/jtWS/6sCgKK
+ogvkmeHBM07h3CwYDFBOBg+MqgqzNUpygj3wJ5ahLkG/HmxNg3CSXeIVlTt+cEZh
+ie0TW+s/rxi4ODLQ9v+UAoDszB0bk8gOd8HGs6CtKXCONDx/W3PSGn/+hTWpqE2G
+PsH4EqjI2uegyw4xMxO78iC9adn7fOGZFec1HaL4KmrWe+Vqg1KLIYx55ZrQFq5h
+/vP+hKlWSZP/HtY3knlQ2DcqickRAhz//C8wsxso+pjKdHHfDers0W02kzL0Cljk
+OpJedpnjd+JHLprysuEShJQ5vDIC48fsj5qwy315uyfpXOYcII2qOQIDAQABo2Yw
+ZDASBgNVHRMBAf8ECDAGAQH/AgEAMA4GA1UdDwEB/wQEAwIChDAdBgNVHQ4EFgQU
+hxTpNzJ+vbYo/DBqYCQQMNi9524wHwYDVR0jBBgwFoAU8kGYj4IIg0uJcAYVO7al
+Tpt5aAgwPQYJKoZIhvcNAQEKMDCgDTALBglghkgBZQMEAgGhGjAYBgkqhkiG9w0B
+AQgwCwYJYIZIAWUDBAIBogMCASADggEBAIlYDO7RnIdPDozvWshfuvQ3VawcjGSm
+KLJGp11MxM2Kd5SPTVT+uisLntJ6CY+FNdCc7zF2F9Va36rlIKYzqNBsmtOHF6Nf
+RBEssoJb5Tq81ZYDM5wsG+CMtS8wZ09M0ObkixzZFePidF/NIfPx1cj/FXEyosZ8
+lC0VXF8DG90waxrhY5W/ziBJTy7BTFNlgdMFw/wP+Wm+1PzqPESnDcgKr2D8lYGY
+kyP2AUNEmQkr/P2wqjYmFwUl8Fu6vyfXXLrBD3DN+MprdUP2d+fxr6kcVfjikzfU
+ZkHrvWqUb3z63I2NMPXnoDq3ZcN+1eE15JqfFk68Z6gNh3qjcFyaI0g=
+-----END CERTIFICATE-----
+
+

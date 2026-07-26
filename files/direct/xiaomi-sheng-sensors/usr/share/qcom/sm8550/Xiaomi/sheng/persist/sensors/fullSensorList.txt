@@ -1,0 +1,18 @@
+2
+qmc630x Magnetometer Non-wakeup
+0
+33171055
+tsl2522 back ambient  Non-wakeup
+1
+8
+stk_stk3bcx Proximity Sensor Wakeup
+1
+33171089
+stk_stk3bcx front CCT stream Cct Sensor Strm Non-wakeup
+1
+4
+icm4x6xx Gyroscope Non-wakeup
+1
+1
+icm4x6xx Accelerometer Non-wakeup
+1

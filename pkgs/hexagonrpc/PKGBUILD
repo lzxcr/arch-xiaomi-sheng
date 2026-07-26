@@ -1,6 +1,6 @@
 # Maintainer: Jacobi Lie <jssnlzxcr@gmail.com>
 pkgname=hexagonrpc
-pkgver=r212.4e63ad5
+pkgver=r231.20281e0
 pkgrel=1
 pkgdesc="Qualcomm Hexagon DSP FastRPC userspace library and daemon"
 arch=('aarch64')
@@ -24,6 +24,6 @@ build() {
 
 package() {
   cd "${pkgname}"
-  DESTDIR="${pkgdir}" meson install --destdir "${pkgdir}" -C build
+  DESTDIR="${pkgdir}" meson install -C build
   install -Dm644 COPYING "${pkgdir}/usr/share/licenses/${pkgname}/LICENSE"
 }
