@@ -16,8 +16,13 @@ pkgs/*/*.tar.gz
 pkgs/*/*.deb
 pkgs/*/*.deb.part
 
-# 嵌入式 git 仓库（makepkg clone）
+# 嵌入式 git 仓库（makepkg clone 到 $srcdir，勿提交）
 pkgs/*/src/*/
+
+# 历史遗留：包目录下的手动上游克隆（.git 内部文件，勿提交）
+pkgs/*/hexagonrpc/
+pkgs/*/sheng-firmware/
+pkgs/*/sheng_devauth/
 
 # 日志
 *.log
