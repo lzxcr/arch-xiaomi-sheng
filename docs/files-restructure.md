@@ -27,7 +27,7 @@ files/
 │               ├── socinfo/              # SoC 信息
 │               └── sns_reg_version
 ├── install/                             # 需要安装的系统集成文件（install -Dm644）
-│   ├── fastrpc/
+│   ├── hexagonrpc/
 │   │   └── adsprpcd_sensorspd.service    # systemd 单元文件（含 qteesupplicant 依赖）
 │   ├── xiaomi-mipps-auth/
 │   │   ├── xiaomi-mipps-auth.service     # sed 已预应用
@@ -79,7 +79,7 @@ fetch:
 
 | 包名 | 当前 source | 修改后 source | package() 变化 |
 |------|-------------|---------------|----------------|
-| fastrpc | `files.tar.gz` (含 service) | 不变 | 不变（service 仍在解压目录根下） |
+| fastrpc→hexagonrpc | `files.tar.gz` (含 service) | 不变 | 不变（service 仍在解压目录根下） |
 | libssc | — | — | **删除 prepare()**，patch 不再需要 |
 | xiaomi-sheng-sensors | `files.tar.gz` | 不变 | 将 `usr/` 整体 `cp -r` 拆为 `usr/share/` 直接拷贝 + `lib/` 用 `install -Dm644` |
 | xiaomi-mipps-auth | `files.tar.gz` | 不变 | 不变 |
@@ -118,7 +118,7 @@ package() {
 ## 8. 移出的文件
 
 - `scripts/fetch-sources.sh` — 不再需要
-- `pkgs/fastrpc/adsprpcd_sensorspd.service` — 移至 `files/install/fastrpc/`
+- `pkgs/hexagonrpc/adsprpcd_sensorspd.service` — 移至 `files/install/hexagonrpc/`
 - `pkgs/libssc/wait_for_qmi_service.patch` — **移除**（上游已修复）
 - `pkgs/xiaomi-sheng-sensors/sheng-sensors-files.tar.gz` — 改为从 `files/{direct,install}/xiaomi-sheng-sensors/` 打包
 - `pkgs/xiaomi-sheng-sensors/sheng-sensors-files/` — 移至 `files/{direct,install}/xiaomi-sheng-sensors/`

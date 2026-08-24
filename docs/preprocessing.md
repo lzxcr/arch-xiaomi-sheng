@@ -4,7 +4,7 @@
 
 ---
 
-## fastrpc (install/)
+## hexagonrpc (install/)
 
 | 上游来源 | 预处理操作 |
 |----------|-----------|
@@ -55,7 +55,8 @@
 
 | 上游来源 | 版本 | 文件 | 预处理 |
 |----------|------|------|--------|
-| `ianchb/xiaomi-sheng-thp` | v0.3.6 | `xiaomi-sheng-thp.service` | `/usr/libexec/xiaomi-sheng-thp/xiaomi-sheng-thp` → `/usr/lib/xiaomi-sheng-thp/xiaomi-sheng-thp` |
+| `ianchb/xiaomi-sheng-thp` | v0.3.9 | `xiaomi-sheng-thp.service` | ① `/usr/libexec/xiaomi-sheng-thp/xiaomi-sheng-thp` → `/usr/lib/xiaomi-sheng-thp/xiaomi-sheng-thp` |
+| | | | ② 补充 `RuntimeDirectory=xiaomi-sheng-thp`（v0.3.9 起守护进程写 `/run/xiaomi-sheng-thp/` ready 状态） |
 
 ---
 

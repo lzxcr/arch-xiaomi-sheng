@@ -24,7 +24,9 @@ arch-xiaomi-sheng/
 │   │   ├── alsa-ucm-xiaomi-sheng/
 │   │   └── xiaomi-sheng-sensors/
 │   └── install/                   #   需要安装的系统集成文件（systemd、udev 规则）
-│       ├── fastrpc/
+│       ├── hexagonrpc/
+│       ├── mkinitcpio-bootflash/
+│       ├── xiaomi-charger-mode/
 │       ├── xiaomi-mipps-auth/
 │       ├── xiaomi-sheng-devauth/
 │       ├── xiaomi-sheng-fingerprint/
@@ -33,25 +35,29 @@ arch-xiaomi-sheng/
 │       └── xiaomi-sheng-thp/
 ├── scripts/
 │   ├── config.sh                 # 全局配置（用户可编辑）
+│   ├── clean.sh                  # 清理构建产物（--keep-cache 保留源码缓存）
 │   ├── package-files.sh          # ① 将 files/{direct,install}/ 打包为 files.tar.gz
 │   ├── build-pkgs.sh             # ② 按依赖拓扑序在 clean chroot 中构建
 │   ├── build-repo.sh             # ③ 创建本地 pacman 仓库
 │   └── mkrootfs.sh               # ④ pacstrap 引导 + 生成 rootfs.img
-├── pkgs/                         # 13 个 PKGBUILD 包（Arch Linux 规范）
-│   ├── fastrpc/                  #   Qualcomm FastRPC DSP 通信
+├── pkgs/                         # 15 个 PKGBUILD 包（Arch Linux 规范）
+│   ├── hexagonrpc/               #   Qualcomm Hexagon DSP FastRPC 通信
 │   ├── libssc/                   #   Qualcomm Sensor Core 库
 │   ├── iio-sensor-proxy/         #   IIO→D-Bus 代理 (+SSC 支持)
 │   ├── xiaomi-sheng-sensors/     #   传感器配置文件集
+│   ├── alsa-ucm-xiaomi-sheng/    #   ALSA UCM2 音频配置
 │   ├── linux-xiaomi-sheng/       #   预编译内核 + 模块 + DTB
 │   ├── linux-firmware-sheng/     #   固件 blob（替代上游 firmware 包）
+│   ├── mkinitcpio-bootflash/     #   A/B 启动刷写 mkinitcpio 钩子
 │   ├── xiaomi-sheng-devauth/     #   键盘认证守护进程
 │   ├── xiaomi-mipps-auth/        #   MiPPS/PPS 充电认证
+│   ├── xiaomi-charger-mode/      #   充电模式用户态程序
 │   ├── xiaomi-pen-status/        #   手写笔状态托盘
 │   ├── xiaomi-sheng-fingerprint/ #   指纹 FPC1553 QTEE 支持
 │   ├── xiaomi-sheng-keyboard-helper/ # 键盘辅助工具
 │   └── xiaomi-sheng-thp/         #   NT36532E 触控处理器
 └── out/                          # 构建输出 (.gitignore)
-    ├── pkgs/                     # *.pkg.tar.xz
+    ├── pkgs/                     # *.pkg.tar.*
     ├── repo/                     # pacman DB
     └── rootfs/                   # rootfs.img + boot.img
 ```
@@ -99,7 +105,7 @@ ROOTFS_SIZE_MB=4096
 
 | 来源 (debian-sheng) | 目标 (files/) |
 |---|---|
-| `patches/adsprpcd-sensorspd.service` | `files/install/fastrpc/adsprpcd_sensorspd.service`（文件名 `-` → `_`） |
+| `patches/adsprpcd-sensorspd.service` | `files/install/hexagonrpc/adsprpcd_sensorspd.service`（文件名 `-` → `_`） |
 | `sheng-sensors-files/usr/share/qcom/` | `files/direct/xiaomi-sheng-sensors/usr/share/` |
 | `sheng-sensors-files/usr/lib/` (systemd + udev) | `files/install/xiaomi-sheng-sensors/lib/`（drop-in 服务名修正） |
 | `sheng-devauth/` 中 .service + qtee.conf | `files/install/xiaomi-sheng-devauth/usr/lib/systemd/system/` |
@@ -109,16 +115,16 @@ ROOTFS_SIZE_MB=4096
 
 ```bash
 #!/bin/bash
-# 作用：按拓扑序在 clean chroot 中构建全部 13 个包
+# 作用：按拓扑序在 clean chroot 中构建全部 15 个包
 # 输入：config.sh + pkgs/*/PKGBUILD
-# 输出：out/pkgs/*.pkg.tar.xz
+# 输出：out/pkgs/*.pkg.tar.*
 ```
 
-**构建拓扑**（3 个 tier，同 tier 可并行）：
+**构建拓扑**（4 个 tier，同 tier 可并行）：
 
 ```
 Tier 0 (无内部依赖):
-  fastrpc, libssc, linux-firmware-sheng, linux-xiaomi-sheng
+  hexagonrpc, libssc, linux-firmware-sheng, linux-xiaomi-sheng
        │
 Tier 1 (依赖 libssc):
   iio-sensor-proxy
@@ -126,7 +132,8 @@ Tier 1 (依赖 libssc):
 Tier 2 (依赖 iio-sensor-proxy):
   xiaomi-sheng-sensors
        │
-Tier 3 (无内部依赖):
+Tier 3 (无内部交叉依赖):
+  alsa-ucm-xiaomi-sheng, xiaomi-charger-mode, mkinitcpio-bootflash,
   xiaomi-sheng-devauth, xiaomi-mipps-auth, xiaomi-pen-status,
   xiaomi-sheng-fingerprint, xiaomi-sheng-keyboard-helper, xiaomi-sheng-thp
 ```
@@ -134,8 +141,8 @@ Tier 3 (无内部依赖):
 **构建方式**：
 - 检查 / 创建 clean chroot：`mkarchroot $BUILD_CHROOT base-devel`
 - 逐包（同 tier 可并行）：`makechrootpkg -c -r $BUILD_CHROOT -- --syncdeps --noconfirm --skippgpcheck`
-- 产出 `.pkg.tar.xz` 收集到 `out/pkgs/`
-- 构建完成后在 repo 中安装给下一 tier 使用（通过 `makechrootpkg -I`）
+- 跨包依赖通过 `makechrootpkg -I` 注入 chroot（`PKG_DEPS` 表：iio-sensor-proxy → libssc，xiaomi-sheng-sensors → iio-sensor-proxy，xiaomi-sheng-thp → libssc）
+- 产出 `.pkg.tar.*` 收集到 `out/pkgs/`
 
 **参数**：
 - `--tier N`：仅构建指定 tier
@@ -146,18 +153,17 @@ Tier 3 (无内部依赖):
 
 ```bash
 #!/bin/bash
-# 作用：将 out/pkgs/*.pkg.tar.xz 注册为本地 pacman 仓库
-# 输出：out/repo/sheng.db + sheng.files
+# 作用：将 out/pkgs/*.pkg.tar.* 注册为本地 pacman 仓库
+# 输出：out/repo/sheng.db.tar.gz + out/sheng-repo.conf
 ```
 
 **操作**：
-1. `cp out/pkgs/*.pkg.tar.xz out/repo/`
-2. `repo-add out/repo/sheng.db.tar.gz out/repo/*.pkg.tar.xz`
+1. `cp out/pkgs/*.pkg.tar.* out/repo/`
+2. `repo-add out/repo/sheng.db.tar.gz out/repo/*.pkg.tar.*`
 3. 生成 `out/sheng-repo.conf`：
 ```ini
-[options]
-SigLevel = Never
 [sheng]
+SigLevel = Never
 Server = file:///path/to/out/repo
 ```
 
@@ -167,49 +173,52 @@ Server = file:///path/to/out/repo
 #!/bin/bash
 # 作用：用 pacstrap 创建 Arch ARM rootfs 并输出可刷写的镜像
 # 输入：config.sh + out/repo/
-# 输出：out/rootfs/rootfs.img + boot.img
+# 输出：out/rootfs/rootfs.img
 ```
 
 **操作**：
 1. 创建空白镜像：`dd if=/dev/zero of=rootfs.img bs=1M count=$ROOTFS_SIZE_MB`
 2. 格式化：`mkfs.ext4 rootfs.img`
 3. 挂载到临时目录
-4. `pacstrap /mnt base`（需在 aarch64 环境或 qemu-user-static）
-5. 复制 `sheng-repo.conf` 到 `/mnt/etc/pacman.conf` 追加
-6. `arch-chroot /mnt pacman -Syu --noconfirm`
-7. 安装所有 sheng 包
-8. 可选：安装桌面环境（KDE/GNOME）
-9. 配置 hostname / user / 网络
-10. 卸载、fsck
+4. `pacstrap -K /mnt base base-devel linux-aarch64 linux-firmware ...`（需在 aarch64 环境或 qemu-user-static）
+5. 追加 `sheng-repo.conf` 并复制本地仓库包到 `/opt/sheng-repo`
+6. `arch-chroot /mnt pacman -Syu --noconfirm` 安装全部 15 个 sheng 包
+7. 可选：安装桌面环境（KDE/GNOME）
+8. 配置 hostname / locale / 用户 / 网络，启用 NetworkManager 与桌面 DM
+9. `mkinitcpio -p linux-xiaomi-sheng` 生成 initramfs
+10. 清理 pacman 缓存、卸载、fsck
 
 **桌面环境安装**：
-- `ROOTFS_DESKTOP=kde`：安装 `plasma-meta konsole dolphin`
-- `ROOTFS_DESKTOP=gnome`：安装 `gnome gnome-tweaks`
+- `ROOTFS_DESKTOP=kde`：安装 `plasma-meta konsole dolphin plasma-nm plasma-pa kscreen powerdevil spectacle gwenview`，启用 sddm
+- `ROOTFS_DESKTOP=gnome`：安装 `gnome gnome-tweaks gnome-browser-connector gdm networkmanager`，启用 gdm
 - `ROOTFS_DESKTOP=none`：跳过
 
 ## 5. 包依赖关系矩阵
 
 | 包名 | 运行时依赖 | 构建依赖 | 源类型 |
 |---|---|---|---|
-| fastrpc | systemd | autoconf, automake, libtool | GitHub tar.gz + 本地 .service |
-| libssc | glib2, protobuf-c, libqmi | meson, ninja, pkgconf, protobuf, git | CodeBerg tar.gz + 本地 .patch |
-| iio-sensor-proxy | glib2, systemd, gudev, polkit, dbus, **libssc** | meson, ninja, pkgconf | GitLab tar.gz |
-| xiaomi-sheng-sensors | **iio-sensor-proxy** | — | 本地目录 |
+| hexagonrpc | glibc, systemd | meson, ninja, pkgconf, json-c, git | GitHub git clone |
+| libssc | glib2, protobuf-c, libqmi | devtools, meson, ninja, pkgconf, protobuf | Codeberg tar.gz |
+| iio-sensor-proxy | glib2, systemd, libgudev, polkit, dbus, **libssc** | devtools, meson, ninja, pkgconf | GitLab tar.gz |
+| xiaomi-sheng-sensors | **iio-sensor-proxy** | — | files.tar.gz（本地维护） |
+| alsa-ucm-xiaomi-sheng | alsa-ucm-conf | — | files.tar.gz（本地维护） |
 | linux-xiaomi-sheng | kmod, mkinitcpio | — | GitHub Release .deb |
 | linux-firmware-sheng | — (conflicts linux-firmware-*) | git | GitHub git clone |
+| mkinitcpio-bootflash | android-tools, mkinitcpio | — | files.tar.gz（本地维护） |
 | xiaomi-sheng-devauth | systemd | git, make, gcc | GitHub git clone |
 | xiaomi-mipps-auth | python, systemd, util-linux, glib2 | — | GitHub tar.gz |
+| xiaomi-charger-mode | python, systemd, util-linux | — | GitHub tar.gz + files.tar.gz |
 | xiaomi-pen-status | qt6-base, qt6-svg, hicolor-icon-theme | qt6-base, make | GitHub tar.gz |
 | xiaomi-sheng-fingerprint | fprintd, systemd, glibc, glib2, pixman, libgusb | gcc, meson, ninja, pkgconf, git | GitHub tar.gz |
 | xiaomi-sheng-keyboard-helper | glibc, glib2, systemd | gcc, make, pkgconf | GitHub tar.gz |
-| xiaomi-sheng-thp | bluez, glibc, gcc-libs, systemd | gcc, make | GitHub tar.gz |
+| xiaomi-sheng-thp | bluez, glibc, gcc-libs, glib2, **libssc**, systemd | gcc, make, pkgconf, glib2, libssc | GitHub tar.gz |
 
 ## 6. 设计决策记录
 
 | 决策 | 选项 | 理由 |
 |---|---|---|
 | 最终产出 | 包仓库 + rootfs 镜像 | 既满足安装到已有系统，也支持全新刷写 |
-| 脚本拆法 | 4 脚本（fetch/build/repo/mkrootfs） | 关注点分离，可独立调试每一步 |
+| 脚本拆法 | 5 脚本（config/package-files/build/repo/mkrootfs）+ clean | 关注点分离，可独立调试每一步 |
 | 构建环境 | clean chroot (makechrootpkg) | Arch 规范，避免宿主污染 |
 | 内核 | 仅预编译二进制 | 用户选择，避免全量内核编译 |
 | 源文件获取 | 本地 files/{direct,install}/ 维护（package-files.sh 打包） | 不再依赖运行时 clone，所有预置文件版本受控 |

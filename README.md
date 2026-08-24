@@ -328,6 +328,7 @@ arch-xiaomi-sheng/
 │       └── xiaomi-sheng-thp/
 ├── scripts/
 │   ├── config.sh                     # 全局构建配置
+│   ├── clean.sh                      # 清理构建产物（--keep-cache 保留源码缓存）
 │   ├── package-files.sh              # 将 files/{direct,install}/ 打包为 pkgs/<pkg>/files.tar.gz
 │   ├── build-pkgs.sh                 # ① 按拓扑序构建包
 │   ├── build-repo.sh                 # ② 创建本地仓库
@@ -351,8 +352,7 @@ arch-xiaomi-sheng/
 ├── docs/
 │   ├── DESIGN.md                     # 构建系统设计文档
 │   ├── preprocessing.md              # files/ 预处理操作记录
-│   ├── files-restructure.md          # files/ 集中化管理设计
-│   └── superpowers/plans/            # 实现计划
+│   └── files-restructure.md          # files/ 集中化管理设计
 └── out/                              # 构建输出 (.gitignore)
     ├── pkgs/                         # 构建好的 .pkg.tar.*
     ├── repo/                         # pacman 数据库
@@ -364,9 +364,10 @@ arch-xiaomi-sheng/
 - 更新预编译内核：修改 `config.sh` 中的 `KERNEL_PREBUILT_TAG`，并同步
   `pkgs/linux-xiaomi-sheng/PKGBUILD` 的 `pkgver`/`_tag`/`sha256sums`
 - `files/{direct,install}/` 中的本地文件更新后，运行 `./scripts/package-files.sh` 重新打包 `files.tar.gz`
-- 有 Release tag 的包使用**真实 sha256 校验和**（`linux-xiaomi-sheng`、`xiaomi-pen-status`、
-  `xiaomi-sheng-thp`）；无 tag 的 git HEAD 快照包与本地 `files.tar.gz` 因内容随构建变化
-  仍使用 `sha256sums=('SKIP')`（通过 HTTPS 传输保证完整性）
+- 有固定 Release tag 的包使用**真实 sha256 校验和**；仅 git HEAD 快照包
+  （`linux-firmware-sheng`、`xiaomi-sheng-devauth`、`hexagonrpc`）与本地生成的
+  `files.tar.gz` 因内容随构建变化仍使用 `sha256sums=('SKIP')`
+- 更新 tag 型包时，用 `sha256sum <新 tarball>` 计算并同步 `sha256sums`
 - 在 `makechrootpkg` clean chroot 环境下构建时，`fakeroot` 自动处理文件所属权，无需显式 `chown`
 
 ## 致谢
