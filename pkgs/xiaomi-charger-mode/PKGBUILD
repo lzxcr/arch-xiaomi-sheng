@@ -10,7 +10,7 @@ depends=('python' 'systemd' 'util-linux')
 optdepends=('xiaomi-mipps-auth: automatic PPS charger authentication')
 source=("${pkgname}-${pkgver}.tar.gz::${url}/archive/refs/tags/${pkgver}.tar.gz"
         "files.tar.gz")
-sha256sums=('SKIP'
+sha256sums=('7ab92488b6301126976ae449815fc962c3240a7e8b79b418e1942c7605d73c72'
             'SKIP')
 
 package() {

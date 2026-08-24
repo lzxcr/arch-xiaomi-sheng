@@ -3,7 +3,7 @@ pkgname=xiaomi-mipps-auth
 pkgver=0.21
 pkgrel=1
 pkgdesc="Automatic Xiaomi MiPPS/PPS charger authentication for sheng"
-arch=('aarch64')
+arch=('any')
 url="https://github.com/ianchb/xiaomi-mipps-auth"
 license=('GPL-2.0-only')
 
@@ -15,7 +15,7 @@ depends=(
 )
 source=("${pkgname}-${pkgver}.tar.gz::${url}/archive/refs/tags/${pkgver}.tar.gz"
         "files.tar.gz")
-sha256sums=('SKIP'
+sha256sums=('2373622166c46bfa7c090e602eb2c409102dead2849f6ba36add7ed210479150'
             'SKIP')
 
 package() {

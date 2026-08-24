@@ -10,7 +10,7 @@ depends=('glibc' 'glib2' 'systemd')
 makedepends=('gcc' 'make' 'pkgconf')
 source=("${pkgname}-${pkgver}.tar.gz::${url}/archive/refs/tags/v${pkgver}.tar.gz"
         "files.tar.gz")
-sha256sums=('SKIP'
+sha256sums=('b7c2bf24bb2de69b7db7a89a9b6ef8c21b95b390897090850283789ea466ab46'
             'SKIP')
 
 prepare() {
