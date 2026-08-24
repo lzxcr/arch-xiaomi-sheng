@@ -7,9 +7,9 @@ arch=('aarch64' 'x86_64')
 url="https://codeberg.org/DylanVanAssche/libssc"
 license=('GPL-3.0-or-later')
 depends=('glib2' 'protobuf-c' 'libqmi')
-makedepends=('meson' 'ninja' 'pkgconf' 'protobuf')
+makedepends=('devtools' 'meson' 'ninja' 'pkgconf' 'protobuf')
 source=("${pkgname}-${pkgver}.tar.gz::${url}/archive/v${pkgver}.tar.gz")
-sha256sums=('SKIP')
+sha256sums=('716d6bd6b34d2d753060c6b54c9a87e34fae75b724c763bf9ef487efa3621587')
 
 build() {
   arch-meson "${pkgname}" build

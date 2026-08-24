@@ -10,7 +10,6 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-PROJECT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 
 # shellcheck source=scripts/config.sh
 source "$SCRIPT_DIR/config.sh"
@@ -40,8 +39,12 @@ cleanup() {
     msg "卸载 $MNT_DIR ..."
     sudo umount -R "$MNT_DIR" || true
   fi
-  [ -d "$MNT_DIR" ] && rmdir "$MNT_DIR" 2>/dev/null || true
-  [ -n "$LOOP_DEV" ] && [ -f "$LOOP_DEV" ] && sudo losetup -d "$LOOP_DEV" 2>/dev/null || true
+  if [ -d "$MNT_DIR" ]; then
+    rmdir "$MNT_DIR" 2>/dev/null || true
+  fi
+  if [ -n "$LOOP_DEV" ] && [ -b "$LOOP_DEV" ]; then
+    sudo losetup -d "$LOOP_DEV" 2>/dev/null || true
+  fi
 }
 trap cleanup EXIT
 
@@ -109,6 +112,7 @@ main() {
   # 5. 复制本地仓库配置
   msg "配置本地 sheng 仓库 ..."
   if [ -f "$OUT_DIR/sheng-repo.conf" ]; then
+    # shellcheck disable=SC2002 # cat 以普通用户读取，tee 以 root 写入
     cat "$OUT_DIR/sheng-repo.conf" | sudo tee -a "$MNT_DIR/etc/pacman.conf" > /dev/null
   else
     error "未找到本地仓库配置: $OUT_DIR/sheng-repo.conf（请先执行 build-repo.sh）"
@@ -126,11 +130,12 @@ main() {
 
   # 7. 安装 sheng 包
   msg "安装 sheng 硬件支持包 ..."
-  local SHENG_PKGS="fastrpc libssc iio-sensor-proxy xiaomi-sheng-sensors \
-                     linux-xiaomi-sheng linux-firmware-sheng \
-                     xiaomi-sheng-devauth xiaomi-mipps-auth \
-                     xiaomi-pen-status xiaomi-sheng-fingerprint \
+  local SHENG_PKGS="hexagonrpc libssc iio-sensor-proxy xiaomi-sheng-sensors \
+                     alsa-ucm-xiaomi-sheng linux-xiaomi-sheng linux-firmware-sheng \
+                     mkinitcpio-bootflash xiaomi-sheng-devauth xiaomi-mipps-auth \
+                     xiaomi-charger-mode xiaomi-pen-status xiaomi-sheng-fingerprint \
                      xiaomi-sheng-keyboard-helper xiaomi-sheng-thp"
+  # shellcheck disable=SC2086 # 有意按空格拆分为多个包名
   sudo arch-chroot "$MNT_DIR" pacman -Syu --noconfirm $SHENG_PKGS
 
   # 8. 安装桌面环境（可选）
@@ -138,12 +143,14 @@ main() {
   DESKTOP_PKGS=$(desktop_pkgs "$ROOTFS_DESKTOP")
   if [ -n "$DESKTOP_PKGS" ]; then
     msg "安装桌面环境: $ROOTFS_DESKTOP ..."
+    # shellcheck disable=SC2086 # 有意按空格拆分为多个包名
     sudo arch-chroot "$MNT_DIR" pacman -Syu --noconfirm $DESKTOP_PKGS
   fi
 
   # 9. 安装额外包
   if [ -n "$ROOTFS_EXTRA_PKGS" ]; then
     msg "安装额外包: $ROOTFS_EXTRA_PKGS ..."
+    # shellcheck disable=SC2086 # 有意按空格拆分为多个包名
     sudo arch-chroot "$MNT_DIR" pacman -Syu --noconfirm $ROOTFS_EXTRA_PKGS
   fi
 

@@ -2,9 +2,9 @@
 pkgname=xiaomi-sheng-sensors
 pkgver=20260723
 pkgrel=1
-pkgdesc="Proprietary sensor configuration files for Xiaomi Mi Pad 6s Pro"
+pkgdesc="Proprietary sensor configuration files for Xiaomi Pad 6S Pro 12.4 (sheng)"
 arch=('aarch64')
-url="https://github.com/qualcomm/fastrpc"
+url="https://github.com/ianchb/debian-sheng"
 license=('custom')
 options=('!strip')
 depends=('iio-sensor-proxy')
@@ -13,7 +13,7 @@ sha256sums=('SKIP')
 
 package() {
   cp -dr --no-preserve=ownership "${srcdir}/usr" "${pkgdir}/"
-  
+
   install -Dm644 "${srcdir}/81-sheng-ssc-sensors.rules" \
     "${pkgdir}/usr/lib/udev/rules.d/81-sheng-ssc-sensors.rules"
 }

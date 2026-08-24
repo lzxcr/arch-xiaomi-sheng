@@ -7,9 +7,9 @@ arch=('aarch64')
 url="https://gitlab.freedesktop.org/hadess/iio-sensor-proxy"
 license=('GPL-2.0-or-later')
 depends=('glib2' 'systemd' 'libgudev' 'polkit' 'dbus' 'libssc')
-makedepends=('meson' 'ninja' 'pkgconf')
+makedepends=('devtools' 'meson' 'ninja' 'pkgconf')
 source=("${pkgname}-${pkgver}.tar.gz::${url}/-/archive/${pkgver}/${pkgname}-${pkgver}.tar.gz")
-sha256sums=('SKIP')
+sha256sums=('af5edd307dcfa52dc3a242d13b7cc756e90a71640caf332efbad960e21649ae4')
 
 build() {
   cd "${pkgname}-${pkgver}"
