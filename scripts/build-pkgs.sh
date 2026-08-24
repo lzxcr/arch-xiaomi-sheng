@@ -16,7 +16,6 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-PROJECT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 
 # shellcheck source=scripts/config.sh
 source "$SCRIPT_DIR/config.sh"
@@ -153,7 +152,7 @@ main() {
 
       msg "收集 $pkg 构建产物 ..."
       find "$pkgdir" -maxdepth 1 -name '*.pkg.tar.*' -exec mv {} "$OUT_PKGS_DIR/" \;
-      (cd "$pkgdir" && rm -f *.pkg.tar.*)
+      (cd "$pkgdir" && rm -f -- *.pkg.tar.*)
 
       msg "✓ $pkg 构建完成"
     done
