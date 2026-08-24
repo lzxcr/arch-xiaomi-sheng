@@ -68,7 +68,7 @@ BUILD_CHROOT=/var/lib/archbuild    # clean chroot 路径
 
 # 内核
 KERNEL_PREBUILT_REPO="ianchb/sm8550-mainline"
-KERNEL_PREBUILT_TAG="7.1.4-kbd"
+KERNEL_PREBUILT_TAG="7.2.0"
 
 # 输出
 OUT_DIR="$PWD/out"

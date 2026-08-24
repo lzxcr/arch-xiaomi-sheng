@@ -15,6 +15,7 @@ Arch Linux ARM 软件包集合和构建系统，为 **Xiaomi Pad 6S Pro 12.4 (SM
 | `alsa-ucm-xiaomi-sheng` | ALSA UCM2 音频配置 | 从 debian-sheng 提取 |
 | `linux-xiaomi-sheng` | 主线内核 + 模块 + DTB（预编译 .deb 解包） | [ianchb/sm8550-mainline](https://github.com/ianchb/sm8550-mainline) |
 | `linux-firmware-sheng` | 固件 blob（替代 linux-firmware-qcom 等） | [ianchb/sheng-firmware](https://github.com/ianchb/sheng-firmware) |
+| `mkinitcpio-bootflash` | 通用 A/B 启动刷写 mkinitcpio 钩子 | 本地维护 |
 | `xiaomi-sheng-devauth` | 小米官方键盘认证守护进程 | [ianchb/sheng_devauth](https://github.com/ianchb/sheng_devauth) |
 | `xiaomi-mipps-auth` | MiPPS/PPS 充电器自动认证 | [ianchb/xiaomi-mipps-auth](https://github.com/ianchb/xiaomi-mipps-auth) |
 | `xiaomi-charger-mode` | 充电模式用户态程序（framebuffer 充电界面） | [ianchb/xiaomi-charger-mode](https://github.com/ianchb/xiaomi-charger-mode) |
@@ -22,6 +23,116 @@ Arch Linux ARM 软件包集合和构建系统，为 **Xiaomi Pad 6S Pro 12.4 (SM
 | `xiaomi-sheng-fingerprint` | 指纹 (FPC1553 QTEE) 支持 | [ianchb/xiaomi-sheng-fingerprint](https://github.com/ianchb/xiaomi-sheng-fingerprint) |
 | `xiaomi-sheng-keyboard-helper` | 键盘辅助工具 | [ianchb/xiaomi-sheng-keyboard-helper](https://github.com/ianchb/xiaomi-sheng-keyboard-helper) |
 | `xiaomi-sheng-thp` | NT36532E 触控处理器 | [ianchb/xiaomi-sheng-thp](https://github.com/ianchb/xiaomi-sheng-thp) |
+
+## 软件包来源与 Arch 适配
+
+本仓库 8 个硬件支持包直接跟踪 [ianchb](https://github.com/ianchb) 的上游仓库
+（[debian-sheng](https://github.com/ianchb/debian-sheng) 的姊妹项目）。
+上游主要面向 Debian/Android 生态发布，以下列出每个包的来源、版本追踪方式，
+以及为适配 Arch Linux 生态所做的修正。
+
+| 包名 | 上游仓库 | 版本追踪 | 上游分发形态 |
+|---|---|---|---|
+| `linux-xiaomi-sheng` | [ianchb/sm8550-mainline](https://github.com/ianchb/sm8550-mainline) | Release tag（预编译 .deb） | Debian 内核包 |
+| `linux-firmware-sheng` | [ianchb/sheng-firmware](https://github.com/ianchb/sheng-firmware) | git master HEAD | 裸固件文件仓库 |
+| `xiaomi-sheng-devauth` | [ianchb/sheng_devauth](https://github.com/ianchb/sheng_devauth) | git main HEAD（`rN.<sha>`） | C 源码 + Makefile |
+| `xiaomi-mipps-auth` | [ianchb/xiaomi-mipps-auth](https://github.com/ianchb/xiaomi-mipps-auth) | Release tag `0.21` | 纯 Python 脚本 + Debian 打包目录 |
+| `xiaomi-pen-status` | [ianchb/xiaomi-pen-status](https://github.com/ianchb/xiaomi-pen-status) | Release tag `v0.2.3` | Qt6 源码（qmake） |
+| `xiaomi-sheng-thp` | [ianchb/xiaomi-sheng-thp](https://github.com/ianchb/xiaomi-sheng-thp) | Release tag `v0.3.9` | C++20 源码（Makefile） |
+| `xiaomi-sheng-keyboard-helper` | [ianchb/xiaomi-sheng-keyboard-helper](https://github.com/ianchb/xiaomi-sheng-keyboard-helper) | Release tag `v0.2.0` | C 源码（Makefile） |
+| `xiaomi-sheng-fingerprint` | [ianchb/xiaomi-sheng-fingerprint](https://github.com/ianchb/xiaomi-sheng-fingerprint) | Release tag `v0.1.4` | 源码 + prebuilt 二进制（meson） |
+
+### linux-xiaomi-sheng（内核）
+
+- 上游仅发布 **Debian 预编译 .deb**：PKGBUILD 直接下载 .deb 并解包 `data.tar.*`，
+  **跳过 dpkg 安装脚本与触发器**，不依赖 Debian 工具链。
+- 将 `boot/Image.gz` 解压为标准 **AArch64 `Image`** 放入 `/boot`（而非 Android boot.img），
+  并把独立 DTB、`config-*`、`System.map-*` 一并装入 `/boot`。
+- Debian 的 initramfs-tools 触发器替换为 Arch 的 **mkinitcpio**：包内自动生成
+  `/etc/mkinitcpio.d/linux-xiaomi-sheng.preset`（initramfs 输出
+  `/boot/initramfs-sheng.img`），配合 `post_install` 钩子生成 initramfs。
+- 模块装入 `/usr/lib/modules`（Arch FHS），并以 `provides/conflicts` 对齐 Arch 内核包
+  （`linux`、`linux-aarch64`），避免与发行版内核共存冲突。
+- 解包后统一修正文件/目录权限（`fakeroot` 下构建无所有权问题）。
+
+### linux-firmware-sheng（固件）
+
+- 上游**无 Release**，git clone master HEAD 构建时取最新提交。
+- 裸固件文件树整体复制到 `/usr/lib/firmware`（Arch FHS 惯例）。
+- `provides`/`conflicts` 声明替代 Arch 官方 `linux-firmware-qcom`、
+  `linux-firmware-atheros`、`linux-firmware-cirrus`，避免固件包冲突。
+- `options=('!strip')`，并对固件文件统一做 目录 755 / 文件 644 的权限修正。
+
+### xiaomi-sheng-devauth（键盘认证）
+
+- 上游**无 Release**，跟踪 git main HEAD；`pkgver()` 用
+  `git rev-list --count` + 短 SHA 自动生成版本（如 `r5.bac03b5`）。
+- 上游为 C 源码 + Makefile（静态链接自带 `libs/*.a`），Arch 下直接 `make` 编译，
+  二进制装入 `/usr/bin`。
+- 上游**不提供 systemd 单元**（由 debian-sheng 的 postinst 生成）：systemd 服务
+  由本仓库 `files/install/` 维护，并与其依赖的 `qteesupplicant.service` 联动
+  （上游 PATCH 复用 qteesupplicant 的 RPMB listener）。
+- pacman 不会自动启用服务，需手动 `systemctl enable xiaomi-sheng-devauth.service`
+  （见下文「手动后处理」）。
+
+### xiaomi-mipps-auth（充电认证）
+
+- 纯 Python 脚本（GPL-2.0），上游以 Debian 包结构分发（内含 `DEBIAN/` 打包目录）。
+- 二进制装入 `/usr/lib/xiaomi-mipps-auth/`（Debian 的 `libexec` 惯例 → Arch 路径），
+  systemd 服务的 `ExecStart` 与 udev 规则的 `RUN` 路径**同步修正**。
+- systemd 服务、udev 规则由本仓库 `files/install/` 维护（修正路径并保留
+  `flock` 防重入语义）。
+- 依赖映射：`python3 → python`、`libglib2.0-bin → glib2`、`udev → systemd`。
+
+### xiaomi-pen-status（手写笔托盘）
+
+- Qt6 托盘小工具，上游以 qmake 工程 + `build-deb.sh` 分发；Arch 直接用
+  `qmake6 && make`，不引入 Debian 打包脚本。
+- 自启动：上游按 XDG autostart 约定分发 → Arch 安装
+  `/etc/xdg/autostart/xiaomi-pen-status.desktop`（sed 归一化 `Exec` 为纯托盘启动，
+  不弹窗）。
+- 图标装入 `hicolor` 主题（`/usr/share/icons/hicolor/scalable/apps`）。
+- 依赖映射：Debian 的 `qt6-base-dev` 等 → Arch `qt6-base`/`qt6-svg`/`hicolor-icon-theme`。
+
+### xiaomi-sheng-thp（触控处理器）
+
+- `v0.3.9` 起链接 **libssc**（Focus Pen Pro posture 传感器路径）与 **glib2**：
+  新增 `depends`/`makedepends`，并加入构建系统依赖映射
+  （`PKG_DEPS[xiaomi-sheng-thp]="libssc"`，经 `makechrootpkg -I` 注入 chroot）。
+- 上游 Makefile 默认 `LIBEXECDIR=$(PREFIX)/libexec/...`（Debian 惯例）→
+  构建时传 `LIBEXECDIR=/usr/lib/xiaomi-sheng-thp`（Arch FHS）。
+- 上游 systemd 单元指向 libexec 路径 → 本仓库 `files/install/` 提供修正版
+  （`ExecStart` 指向 Arch 路径）；`v0.3.9` 上游新增
+  `RuntimeDirectory=xiaomi-sheng-thp`（守护进程向 `/run/xiaomi-sheng-thp/` 写
+  Focus Pen Pro ready 状态），本地单元同步补齐。
+- `optdepends` 声明 `xiaomi-pen-status`（上游推荐但非必需）。
+
+### xiaomi-sheng-keyboard-helper（键盘辅助）
+
+- `prepare()` 中 sed 将 Makefile 的 `/usr/libexec/` 全局替换为
+  `/usr/lib/<pkg>/`（Debian libexec 惯例 → Arch FHS）。
+- 服务拆分：折叠角服务为**系统级**（`Wants/After=adsprpcd_sensorspd.service`，
+  注意 Arch 包 hexagonrpc 的单元名带下划线，与 Debian 的 `adsprpcd-sensorspd`
+  不同），麦克风静音指示为 **per-user 服务**（`systemd --user`）。
+- 本地 systemd 单元（`files/install/`）修正 `ExecStart` 路径，覆盖
+  `make install` 带入的上游单元；udev 规则沿用上游（无 libexec 引用）。
+
+### xiaomi-sheng-fingerprint（指纹）
+
+- 上游同时含源码与 prebuilt 二进制：构建时以 `scripts/build-backend.sh` +
+  `scripts/build-libfprint.sh`（meson/ninja）本地编译 FPC QTEE backend 与
+  libfprint 驱动，并以 `sha256sum -c prebuilt/aarch64/SHA256SUMS` 校验第三方
+  QTEE/Mink 运行时。
+- **私有安装**：FPC 版 libfprint 装入 `/usr/lib/xiaomi-sheng-fingerprint/`，
+  **不覆盖发行版 libfprint**，通过 fprintd systemd drop-in 的
+  `LD_LIBRARY_PATH` 暴露给 fprintd。
+- 多架构路径修正：Debian multiarch 的 `/usr/lib/aarch64-linux-gnu/qtee-listeners`
+  → Arch 的 `/usr/lib/qtee-listeners`；`/usr/libexec/` → `/usr/lib/<pkg>/`
+  （sfsconfig/qteesupplicant 单元）。
+- systemd 单元（sfsconfig、qteesupplicant）、udev 规则、fprintd drop-in 由
+  本仓库 `files/install/` 维护。
+- 依赖映射：`libfprint`（源码构建，需 pixman/libgusb/glib2 等）→ Arch
+  `pixman`/`libgusb`/`glib2`，fprintd 来自官方仓库。
 
 ## 构建系统
 
@@ -68,8 +179,14 @@ make rootfs                  # ④ 用 pacstrap 组装可刷写的 rootfs.img
 Tier 0: hexagonrpc, libssc, linux-firmware-sheng, linux-xiaomi-sheng
 Tier 1: iio-sensor-proxy (depends: libssc)
 Tier 2: xiaomi-sheng-sensors (depends: iio-sensor-proxy)
-Tier 3: 剩余 6 个包（无内部交叉依赖）
+Tier 3: 其余 9 个包（alsa-ucm-xiaomi-sheng, xiaomi-charger-mode,
+        mkinitcpio-bootflash, xiaomi-sheng-devauth, xiaomi-mipps-auth,
+        xiaomi-pen-status, xiaomi-sheng-fingerprint,
+        xiaomi-sheng-keyboard-helper, xiaomi-sheng-thp）
 ```
+
+其中 `xiaomi-sheng-thp`（v0.3.9 起）与 `iio-sensor-proxy`、`xiaomi-sheng-sensors`
+一样通过 `-I` 注入 chroot 内的 `libssc` 进行构建（见 `build-pkgs.sh` 的 `PKG_DEPS`）。
 
 支持粒度控制：
 
@@ -112,7 +229,7 @@ Tier 3: 剩余 6 个包（无内部交叉依赖）
 
 ```bash
 BUILD_CHROOT=/var/lib/archbuild   # clean chroot 路径
-KERNEL_PREBUILT_TAG="7.1.4-kbd"   # 内核 .deb 的 GitHub release tag
+KERNEL_PREBUILT_TAG="7.2.0"       # 内核 .deb 的 GitHub release tag
 ROOTFS_DESKTOP="none"             # none | kde | gnome
 ROOTFS_HOSTNAME="sheng"
 ROOTFS_USER="alarm"
@@ -201,6 +318,8 @@ arch-xiaomi-sheng/
 │   │   └── xiaomi-sheng-sensors/
 │   └── install/                      #   需要安装的系统集成文件（systemd 单元、udev 规则）
 │       ├── hexagonrpc/
+│       ├── mkinitcpio-bootflash/
+│       ├── xiaomi-charger-mode/
 │       ├── xiaomi-mipps-auth/
 │       ├── xiaomi-sheng-devauth/
 │       ├── xiaomi-sheng-fingerprint/
@@ -213,7 +332,7 @@ arch-xiaomi-sheng/
 │   ├── build-pkgs.sh                 # ① 按拓扑序构建包
 │   ├── build-repo.sh                 # ② 创建本地仓库
 │   └── mkrootfs.sh                   # ③ 组装 rootfs 镜像
-├── pkgs/                             # 13 个 PKGBUILD 包
+├── pkgs/                             # 15 个 PKGBUILD 包
 │   ├── hexagonrpc/
 │   ├── libssc/
 │   ├── iio-sensor-proxy/
@@ -221,6 +340,7 @@ arch-xiaomi-sheng/
 │   ├── alsa-ucm-xiaomi-sheng/
 │   ├── linux-xiaomi-sheng/
 │   ├── linux-firmware-sheng/
+│   ├── mkinitcpio-bootflash/
 │   ├── xiaomi-sheng-devauth/
 │   ├── xiaomi-mipps-auth/
 │   ├── xiaomi-charger-mode/
@@ -241,9 +361,12 @@ arch-xiaomi-sheng/
 
 ## 维护说明
 
-- 更新预编译内核：修改 `config.sh` 中的 `KERNEL_PREBUILT_TAG`
+- 更新预编译内核：修改 `config.sh` 中的 `KERNEL_PREBUILT_TAG`，并同步
+  `pkgs/linux-xiaomi-sheng/PKGBUILD` 的 `pkgver`/`_tag`/`sha256sums`
 - `files/{direct,install}/` 中的本地文件更新后，运行 `./scripts/package-files.sh` 重新打包 `files.tar.gz`
-- 所有包使用 `sha256sums=('SKIP')`（因上游未提供校验和文件），实际构建时通过 HTTPS 传输保证完整性
+- 有 Release tag 的包使用**真实 sha256 校验和**（`linux-xiaomi-sheng`、`xiaomi-pen-status`、
+  `xiaomi-sheng-thp`）；无 tag 的 git HEAD 快照包与本地 `files.tar.gz` 因内容随构建变化
+  仍使用 `sha256sums=('SKIP')`（通过 HTTPS 传输保证完整性）
 - 在 `makechrootpkg` clean chroot 环境下构建时，`fakeroot` 自动处理文件所属权，无需显式 `chown`
 
 ## 致谢
