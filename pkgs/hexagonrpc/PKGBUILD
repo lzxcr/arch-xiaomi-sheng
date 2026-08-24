@@ -1,6 +1,6 @@
 # Maintainer: Jacobi Lie <jssnlzxcr@gmail.com>
 pkgname=hexagonrpc
-pkgver=r231.20281e0
+pkgver=r240.6aafe6d
 pkgrel=1
 pkgdesc="Qualcomm Hexagon DSP FastRPC userspace library and daemon"
 arch=('aarch64')
