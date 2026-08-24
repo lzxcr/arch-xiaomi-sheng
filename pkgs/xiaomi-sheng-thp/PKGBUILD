@@ -1,16 +1,19 @@
 # Maintainer: Jacobi Lie <jssnlzxcr@gmail.com>
 pkgname=xiaomi-sheng-thp
-pkgver=0.3.6
+pkgver=0.3.9
 pkgrel=1
 pkgdesc="NT36532E userspace touch processor for Xiaomi Sheng"
 arch=('aarch64')
 url="https://github.com/ianchb/xiaomi-sheng-thp"
 license=('Apache-2.0')
 
+# 0.3.9 起链接 libssc（Focus Pen Pro posture 路径）与 glib2
 depends=(
   'bluez'
   'glibc'
   'gcc-libs'
+  'glib2'
+  'libssc'
   'systemd'
 )
 optdepends=(
@@ -19,11 +22,14 @@ optdepends=(
 makedepends=(
   'gcc'
   'make'
+  'pkgconf'
+  'glib2'
+  'libssc'
 )
 
 source=("${pkgname}-${pkgver}.tar.gz::${url}/archive/refs/tags/v${pkgver}.tar.gz"
         "files.tar.gz")
-sha256sums=('SKIP'
+sha256sums=('0f85033dc4119022537200540893c466b3778c3f8ca2250440a9d9f93e61448b'
             'SKIP')
 
 build() {

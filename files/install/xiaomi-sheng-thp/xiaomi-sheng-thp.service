@@ -6,6 +6,8 @@ StartLimitIntervalSec=0
 
 [Service]
 Type=simple
+RuntimeDirectory=xiaomi-sheng-thp
+RuntimeDirectoryMode=0755
 ExecStartPre=/usr/bin/test -e /proc/nvt_thp_stream
 ExecStartPre=/usr/bin/test -e /proc/nvt_thp_stylus
 ExecStart=/usr/lib/xiaomi-sheng-thp/xiaomi-sheng-thp

@@ -1,7 +1,7 @@
 # Maintainer: Jacobi Lie <jssnlzxcr@gmail.com>
 pkgname=linux-xiaomi-sheng
-pkgver=7.1.4
-_tag=7.1.4-kbd
+pkgver=7.2.0
+_tag=7.2.0
 pkgrel=1
 pkgdesc="Mainline Linux kernel, DTBs and modules for Xiaomi Pad 6S Pro 12.4 (sheng) - Standard Uncompressed"
 arch=('aarch64')
@@ -13,7 +13,7 @@ conflicts=('linux' 'linux-aarch64')
 options=('!strip')
 install=${pkgname}.install
 source=("${pkgname}-${pkgver}.deb::${url}/releases/download/${_tag}/linux-xiaomi-sheng.deb")
-sha256sums=('55d03017f707b10895d5629913c4cde2d84bb03745367c6b0274779555d90220')
+sha256sums=('1156fe800cecb6836439e30b8c693e14944dfefbb658221d0574db8a611b736a')
 
 package() {
   cd "${srcdir}"

@@ -35,6 +35,8 @@ for t in 0 1 2 3; do ALL_PKGS="$ALL_PKGS ${PKG_TIERS[$t]}"; done
 declare -A PKG_DEPS
 PKG_DEPS[iio-sensor-proxy]="libssc"
 PKG_DEPS[xiaomi-sheng-sensors]="iio-sensor-proxy"
+# xiaomi-sheng-thp 0.3.9 起链接 libssc（Focus Pen Pro posture 路径）
+PKG_DEPS[xiaomi-sheng-thp]="libssc"
 # 其余包无内部跨包依赖
 
 # ── 参数解析 ──────────────────────────────────────────────

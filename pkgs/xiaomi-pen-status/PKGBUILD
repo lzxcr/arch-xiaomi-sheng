@@ -1,6 +1,6 @@
 # Maintainer: Jacobi Lie <jssnlzxcr@gmail.com>
 pkgname=xiaomi-pen-status
-pkgver=0.2.2
+pkgver=0.2.3
 pkgrel=1
 pkgdesc="Stylus status tray utility for Xiaomi Focus Pen"
 arch=('aarch64')
@@ -18,7 +18,7 @@ makedepends=(
 )
 
 source=("${pkgname}-${pkgver}.tar.gz::${url}/archive/refs/tags/v${pkgver}.tar.gz")
-sha256sums=('SKIP')
+sha256sums=('525c18538c58a1b87d0c303dd9d337f7a048dc1ca1b3998cfa78d2902550c126')
 
 build() {
   cd "${pkgname}-${pkgver}"

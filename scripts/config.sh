@@ -12,7 +12,7 @@ BUILD_CHROOT="${BUILD_CHROOT:-/var/lib/archbuild}"
 # ── 内核 ──────────────────────────────────────────────────
 # 预编译内核来源（GitHub Release）
 KERNEL_PREBUILT_REPO="${KERNEL_PREBUILT_REPO:-ianchb/sm8550-mainline}"
-KERNEL_PREBUILT_TAG="${KERNEL_PREBUILT_TAG:-7.1.4-kbd}"
+KERNEL_PREBUILT_TAG="${KERNEL_PREBUILT_TAG:-7.2.0}"
 
 # ── 输出目录 ──────────────────────────────────────────────
 OUT_DIR="${OUT_DIR:-$PWD/out}"
