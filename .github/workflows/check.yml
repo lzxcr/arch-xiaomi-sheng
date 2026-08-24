@@ -1,0 +1,24 @@
+name: Check
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  repository:
+    runs-on: ubuntu-latest
+    container: archlinux:base-devel
+    steps:
+      - name: Install check dependencies
+        run: pacman -Syu --noconfirm git ripgrep shellcheck
+
+      - uses: actions/checkout@v4
+
+      - name: Validate repository
+        run: |
+          useradd --create-home builder
+          chown -R builder:builder .
+          su builder -c "cd '$GITHUB_WORKSPACE' && make check"

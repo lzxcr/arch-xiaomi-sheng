@@ -1,54 +1,52 @@
 #!/usr/bin/env bash
-#
-# build-repo.sh —— 将 out/pkgs/*.pkg.tar.* 注册为本地 pacman 仓库
-#
-# 用法: ./scripts/build-repo.sh
-#
+# Build an atomic local pacman repository from out/pkgs.
 
 set -euo pipefail
 
-SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+# shellcheck source=scripts/lib/common.sh
+source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/lib/common.sh"
 
-# shellcheck source=scripts/config.sh
-source "$SCRIPT_DIR/config.sh"
+STAGING_DIR=""
 
-msg()  { echo -e "\033[1;34m==>\033[0m $*"; }
-error(){ echo -e "\033[1;31m!!>\033[0m $*" >&2; }
+cleanup() {
+  [[ -z "$STAGING_DIR" ]] || rm -rf "$STAGING_DIR"
+}
+trap cleanup EXIT
 
 main() {
-  mkdir -p "$OUT_REPO_DIR"
+  local repository_config="$OUT_DIR/sheng-repo.conf"
+  local -a packages=()
 
-  local pkg_count
-  pkg_count=$(find "$OUT_PKGS_DIR" -name '*.pkg.tar.*' -type f | wc -l)
+  (($# == 0)) || die "build-repo.sh 不接受参数"
+  require_commands repo-add
+  [[ -d "$OUT_PKGS_DIR" ]] || die "包目录不存在: $OUT_PKGS_DIR"
 
-  if [ "$pkg_count" -eq 0 ]; then
-    error "没有找到已构建的包在 $OUT_PKGS_DIR"
-    error "请先执行 ./scripts/build-pkgs.sh"
-    exit 1
-  fi
+  mapfile -t packages < <(
+    find "$OUT_PKGS_DIR" -maxdepth 1 -type f -name '*.pkg.tar.*' -print | sort
+  )
+  ((${#packages[@]} > 0)) || die "没有找到构建包；请先运行 make build"
 
-  msg "复制 $pkg_count 个包到仓库目录 ..."
-  cp "$OUT_PKGS_DIR"/*.pkg.tar.* "$OUT_REPO_DIR/"
+  mkdir -p "$OUT_DIR"
+  STAGING_DIR="$(mktemp -d "$OUT_DIR/.repo.XXXXXX")"
 
-  msg "创建仓库数据库: $OUT_REPO_DIR/sheng.db.tar.gz ..."
-  repo-add "$OUT_REPO_DIR/sheng.db.tar.gz" "$OUT_REPO_DIR"/*.pkg.tar.*
+  msg "复制 ${#packages[@]} 个包到暂存仓库"
+  cp -- "${packages[@]}" "$STAGING_DIR/"
 
-  local repo_conf="$OUT_DIR/sheng-repo.conf"
-  cat > "$repo_conf" <<-EOF
-# sheng 本地仓库 — 由 build-repo.sh 自动生成
-# 追加到 /etc/pacman.conf 使用
+  repo-add "$STAGING_DIR/sheng.db.tar.gz" "$STAGING_DIR"/*.pkg.tar.*
+
+  rm -rf "$OUT_REPO_DIR"
+  mv "$STAGING_DIR" "$OUT_REPO_DIR"
+  STAGING_DIR=""
+
+  cat > "$repository_config" <<EOF
+# 由 scripts/build-repo.sh 生成
 [sheng]
 SigLevel = Never
-Server = file://$(readlink -f "$OUT_REPO_DIR")
+Server = file://$OUT_REPO_DIR
 EOF
 
-  msg "══════ 仓库构建完成 ══════"
-  echo "仓库目录: $OUT_REPO_DIR"
-  echo "仓库配置: $repo_conf"
-  echo ""
-  echo "在 rootfs 中使用本仓库:"
-  echo "  cat $repo_conf >> /mnt/etc/pacman.conf"
-  echo "  或使用 mkrootfs.sh 自动完成"
+  msg "仓库已生成: $OUT_REPO_DIR"
+  msg "宿主 pacman 配置片段: $repository_config"
 }
 
 main "$@"

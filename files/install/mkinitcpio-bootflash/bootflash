@@ -1,8 +1,8 @@
 #!/bin/bash
 #
 # bootflash — mkinitcpio post-generation hook
-# Builds boot.img from /boot/loader/entries/*.conf and flashes
-# to both A/B partitions (boot_a and boot_b).
+# Builds boot.img from /boot/loader/entries/arch.conf. On an installed device
+# it also flashes boot_a and boot_b; image builders set BOOTFLASH_NO_FLASH=1.
 #
 set -euo pipefail
 
@@ -10,8 +10,8 @@ ENTRY_CONF="/boot/loader/entries/arch.conf"
 BOOT_IMG="/boot/boot.img"
 
 if [ ! -f "$ENTRY_CONF" ]; then
-    echo "ERROR: $ENTRY_CONF not found" >&2
-    exit 1
+    echo "==> [bootflash] $ENTRY_CONF not found; skipping boot image generation"
+    exit 0
 fi
 
 echo "==> [bootflash] Parsing $ENTRY_CONF ..."
@@ -29,8 +29,12 @@ echo "  Kernel:    $KERNEL_PATH"
 echo "  Initramfs: $RAMDISK_PATH"
 echo "  DTB:       $DTB_PATH"
 
-if [ ! -f "$KERNEL_PATH" ] || [ ! -f "$RAMDISK_PATH" ]; then
-    echo "ERROR: Kernel or initramfs not found" >&2
+if [ ! -f "$KERNEL_PATH" ]; then
+    echo "ERROR: Kernel not found: $KERNEL_PATH" >&2
+    exit 1
+fi
+if [ ! -f "$RAMDISK_PATH" ]; then
+    echo "ERROR: Initramfs not found: $RAMDISK_PATH" >&2
     exit 1
 fi
 
@@ -57,7 +61,12 @@ if [ ! -f "$BOOT_IMG" ]; then
     exit 1
 fi
 
-echo "==> Flashing to both A/B slots ..."
+if [ "${BOOTFLASH_NO_FLASH:-0}" = "1" ]; then
+    echo "==> [bootflash] BOOTFLASH_NO_FLASH=1; boot.img built without flashing"
+    exit 0
+fi
+
+echo "==> Flashing boot.img to both A/B slots ..."
 for part in boot_a boot_b; do
     TARGET="/dev/disk/by-partlabel/$part"
     if [ -L "$TARGET" ]; then

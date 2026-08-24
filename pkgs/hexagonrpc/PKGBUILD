@@ -1,29 +1,49 @@
 # Maintainer: Jacobi Lie <jssnlzxcr@gmail.com>
 pkgname=hexagonrpc
-pkgver=r240.6aafe6d
+pkgver=0.6.0.r241.gdb659bd
 pkgrel=1
-pkgdesc="Qualcomm Hexagon DSP FastRPC userspace library and daemon"
+pkgdesc="Modern userspace library and reverse-RPC daemon for Qualcomm FastRPC"
 arch=('aarch64')
 url="https://github.com/lzxcr/hexagonrpc"
 license=('GPL-3.0-or-later')
-depends=('glibc' 'systemd')
-makedepends=('meson' 'ninja' 'pkgconf' 'json-c' 'git')
-source=("git+${url}.git")
+depends=('gcc-libs' 'glibc' 'systemd')
+makedepends=('git' 'rust')
+_commit=db659bdd117337766846bb6804a4453b6db06925
+source=("${pkgname}::git+${url}.git#commit=${_commit}")
 sha256sums=('SKIP')
 
-pkgver() {
+prepare() {
   cd "${pkgname}"
-  printf "r%s.%s" "$(git rev-list --count HEAD)" "$(git rev-parse --short HEAD)"
+  export RUSTUP_TOOLCHAIN=stable
+  cargo fetch --locked --target "${CARCH}-unknown-linux-gnu"
 }
 
 build() {
   cd "${pkgname}"
-  arch-meson build
-  meson compile -C build
+  export CARGO_TARGET_DIR=target
+  export RUSTUP_TOOLCHAIN=stable
+  cargo build --frozen --release --workspace
+}
+
+check() {
+  cd "${pkgname}"
+  export CARGO_TARGET_DIR=target
+  export RUSTUP_TOOLCHAIN=stable
+  cargo test --frozen --workspace
 }
 
 package() {
   cd "${pkgname}"
-  DESTDIR="${pkgdir}" meson install -C build
-  install -Dm644 COPYING "${pkgdir}/usr/share/licenses/${pkgname}/LICENSE"
+
+  install -Dm0755 target/release/hexagonrpcd \
+    "${pkgdir}/usr/bin/hexagonrpcd"
+  install -Dm0755 target/release/sns-registrygen \
+    "${pkgdir}/usr/bin/sns-registrygen"
+
+  make -C data DESTDIR="${pkgdir}" PREFIX=/usr install
+
+  install -Dm0644 COPYING \
+    "${pkgdir}/usr/share/licenses/${pkgname}/COPYING"
+  install -Dm0644 README.md docs/*.md \
+    -t "${pkgdir}/usr/share/doc/${pkgname}/"
 }

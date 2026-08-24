@@ -1,8 +1,8 @@
 # Maintainer: Jacobi Lie <jssnlzxcr@gmail.com>
 pkgname=mkinitcpio-bootflash
 pkgver=1.0.0
-pkgrel=2
-pkgdesc="mkinitcpio post hook: build boot.img and flash both A/B slots"
+pkgrel=3
+pkgdesc="mkinitcpio post hook to build Android boot images for A/B devices"
 arch=('any')
 url="https://github.com/ianchb/arch-xiaomi-sheng"
 license=('GPL-2.0-only')

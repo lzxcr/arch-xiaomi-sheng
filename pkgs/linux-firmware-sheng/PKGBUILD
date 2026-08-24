@@ -1,12 +1,12 @@
 # Maintainer: Jacobi Lie <jssnlzxcr@gmail.com>
 pkgname=linux-firmware-sheng
 pkgver=20260723
-pkgrel=1
+pkgrel=2
 pkgdesc="Firmware files for Xiaomi Pad 6S Pro 12.4 (SM8550-AB)"
 arch=('aarch64')
 url="https://github.com/ianchb/sheng-firmware"
 license=('custom:proprietary')
-conflicts=('linux-firmware-atheros' 'linux-firmware-qcom')
+conflicts=('linux-firmware-atheros' 'linux-firmware-cirrus' 'linux-firmware-qcom')
 provides=('linux-firmware-atheros' 'linux-firmware-qcom' 'linux-firmware-cirrus')
 options=('!strip')
 source=("git+https://github.com/ianchb/sheng-firmware.git")

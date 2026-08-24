@@ -1,12 +1,12 @@
 # Maintainer: Jacobi Lie <jssnlzxcr@gmail.com>
 pkgname=xiaomi-sheng-keyboard-helper
 pkgver=0.2.0
-pkgrel=1
+pkgrel=2
 pkgdesc="Keyboard helper for Xiaomi Sheng (Pad 6S Pro 12.4)"
 arch=('aarch64')
 url="https://github.com/ianchb/xiaomi-sheng-keyboard-helper"
 license=('Apache-2.0')
-depends=('glibc' 'glib2' 'systemd')
+depends=('glibc' 'glib2' 'hexagonrpc' 'systemd')
 makedepends=('gcc' 'make' 'pkgconf')
 source=("${pkgname}-${pkgver}.tar.gz::${url}/archive/refs/tags/v${pkgver}.tar.gz"
         "files.tar.gz")
