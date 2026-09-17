@@ -1,0 +1,125 @@
+diff --git a/src/angle_service.c b/src/angle_service.c
+index f0ae693..80d9bba 100644
+--- a/src/angle_service.c
++++ b/src/angle_service.c
+@@ -11,6 +11,7 @@
+ #include <unistd.h>
+ 
+ #define HINGE_DEVICE "/dev/nanosic_hinge"
++#define SENSOR_STALE_USEC (3 * G_USEC_PER_SEC)
+ 
+ struct app_state {
+ 	GMainLoop *loop;
+@@ -23,6 +24,8 @@ struct app_state {
+ 	bool attached;
+ 	bool requested_enabled;
+ 	int exit_status;
++	gint64 keyboard_sample_time;
++	gint64 pad_sample_time;
+ };
+ 
+ static bool write_input_state(struct app_state *app, bool enabled)
+@@ -63,8 +66,10 @@ static void evaluate_angle(struct app_state *app)
+ 					       app->keyboard[1],
+ 					       app->keyboard[2], app->pad[0],
+ 					       app->pad[1], app->pad[2]);
+-	if (angle < 0)
++	if (angle < 0) {
++		write_input_state(app, true);
+ 		return;
++	}
+ 
+ 	enabled = sheng_keyboard_enabled_for_angle(angle);
+ 	if (enabled != app->requested_enabled) {
+@@ -83,15 +88,34 @@ static void accelerometer_measurement(SSCSensorAccelerometer *sensor,
+ 
+ 	(void)sensor;
+ 	if (sheng_pad_is_moving(x, y, z)) {
++		/* Never retain a stale disabled state while moving the tablet. */
+ 		app->pad_ready = false;
++		write_input_state(app, true);
+ 		return;
+ 	}
++	app->pad_sample_time = g_get_monotonic_time();
+ 	if (sheng_update_pad_sample(app->pad, app->pad_ready, x, y, z)) {
+ 		app->pad_ready = true;
+ 		evaluate_angle(app);
+ 	}
+ }
+ 
++static gboolean fail_open_stale_sensors(gpointer user_data)
++{
++	struct app_state *app = user_data;
++	gint64 now = g_get_monotonic_time();
++
++	if ((app->keyboard_ready &&
++	     now - app->keyboard_sample_time > SENSOR_STALE_USEC) ||
++	    (app->pad_ready && now - app->pad_sample_time > SENSOR_STALE_USEC)) {
++		app->keyboard_ready = false;
++		app->pad_ready = false;
++		write_input_state(app, true);
++	}
++
++	return G_SOURCE_CONTINUE;
++}
++
+ static gboolean hinge_ready(int fd, GIOCondition condition, gpointer user_data)
+ {
+ 	struct app_state *app = user_data;
+@@ -135,6 +159,7 @@ static gboolean hinge_ready(int fd, GIOCondition condition, gpointer user_data)
+ 		}
+ 		if (!(sample.flags & NANOSIC_HINGE_SAMPLE_VALID)) {
+ 			app->keyboard_ready = false;
++			write_input_state(app, true);
+ 			continue;
+ 		}
+ 
+@@ -143,6 +168,7 @@ static gboolean hinge_ready(int fd, GIOCondition condition, gpointer user_data)
+ 		app->keyboard[1] = (float)sample.y * 9.8f / 256.0f;
+ 		app->keyboard[2] = (float)sample.z * 9.8f / 256.0f;
+ 		app->keyboard_ready = true;
++		app->keyboard_sample_time = g_get_monotonic_time();
+ 		evaluate_angle(app);
+ 	}
+ 
+@@ -196,6 +222,7 @@ int sheng_angle_main(void)
+ 			app.keyboard[1] = (float)initial_sample.y * 9.8f / 256.0f;
+ 			app.keyboard[2] = (float)initial_sample.z * 9.8f / 256.0f;
+ 			app.keyboard_ready = true;
++			app.keyboard_sample_time = g_get_monotonic_time();
+ 		}
+ 	} else if (initial_count >= 0 ||
+ 		   (errno != EAGAIN && errno != EWOULDBLOCK)) {
+@@ -211,7 +238,7 @@ int sheng_angle_main(void)
+ 		g_printerr("failed to initialize SSC accelerometer: %s\n",
+ 			   error ? error->message : "unknown error");
+ 		g_clear_error(&error);
+-		app.exit_status = 1;
++		app.exit_status = 0;
+ 		goto out;
+ 	}
+ 
+@@ -223,12 +250,13 @@ int sheng_angle_main(void)
+ 		g_printerr("failed to open SSC accelerometer: %s\n",
+ 			   error ? error->message : "unknown error");
+ 		g_clear_error(&error);
+-		app.exit_status = 1;
++		app.exit_status = 0;
+ 		goto out;
+ 	}
+ 
+ 	g_unix_fd_add(app.hinge_fd, G_IO_IN | G_IO_ERR | G_IO_HUP | G_IO_NVAL,
+ 		      hinge_ready, &app);
++	g_timeout_add_seconds(1, fail_open_stale_sensors, &app);
+ 	g_unix_signal_add(SIGINT, stop_service, &app);
+ 	g_unix_signal_add(SIGTERM, stop_service, &app);
+ 	g_main_loop_run(app.loop);
+@@ -243,6 +271,8 @@ out:
+ 	}
+ 	if (app.accelerometer)
+ 		g_object_unref(app.accelerometer);
++	if (!app.requested_enabled)
++		write_input_state(&app, true);
+ 	if (app.loop)
+ 		g_main_loop_unref(app.loop);
+ 	if (app.hinge_fd >= 0)

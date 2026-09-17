@@ -1,0 +1,285 @@
+#!/usr/bin/env bash
+# Safely install and restore a single Xiaomi sheng A/B boot partition.
+
+set -euo pipefail
+
+readonly DEFAULT_IMAGE="/boot/boot.img"
+readonly DEFAULT_BACKUP_DIR="/var/lib/sheng-boot-slot"
+
+die() {
+    printf 'sheng-boot-slot: %s\n' "$*" >&2
+    exit 1
+}
+
+usage() {
+    cat <<'EOF'
+Usage:
+  sheng-boot-slot status
+  sheng-boot-slot install --slot a|b [--image FILE] [--backup-dir DIR]
+                          [--force-active]
+  sheng-boot-slot restore --slot a|b --backup FILE [--force-active]
+
+install and restore always operate on exactly one explicitly selected slot.
+The active slot is refused unless --force-active is also supplied.
+EOF
+}
+
+partition_path() {
+    local slot="$1"
+    local link="/dev/disk/by-partlabel/boot_${slot}"
+    local target
+
+    [[ -L "$link" ]] || die "partition link not found: $link"
+    target="$(readlink -f -- "$link")"
+    [[ -b "$target" ]] || die "not a block device: $target"
+    printf '%s\n' "$target"
+}
+
+partition_uuid() {
+    local label="$1"
+    local link="/dev/disk/by-partlabel/$label"
+
+    [[ -L "$link" ]] || return 1
+    lsblk -dnro PARTUUID "$(readlink -f -- "$link")" 2>/dev/null
+}
+
+active_slot() {
+    local token value slot uuid
+    local cmdline=""
+
+    [[ -r /proc/cmdline ]] && cmdline="$(</proc/cmdline)"
+    for token in $cmdline; do
+        case "$token" in
+            androidboot.slot_suffix=*)
+                value="${token#*=}"
+                value="${value#_}"
+                [[ "$value" == a || "$value" == b ]] && {
+                    printf '%s\n' "$value"
+                    return 0
+                }
+                ;;
+            androidboot.slot=*)
+                value="${token#*=}"
+                value="${value#_}"
+                [[ "$value" == a || "$value" == b ]] && {
+                    printf '%s\n' "$value"
+                    return 0
+                }
+                ;;
+            androidboot.vbmeta.device=PARTUUID=*)
+                uuid="${token#*PARTUUID=}"
+                uuid="${uuid%%/*}"
+                uuid="${uuid,,}"
+                for slot in a b; do
+                    value="$(partition_uuid "vbmeta_$slot" || true)"
+                    [[ "${value,,}" != "$uuid" ]] || {
+                        printf '%s\n' "$slot"
+                        return 0
+                    }
+                done
+                ;;
+        esac
+    done
+
+    printf 'unknown\n'
+}
+
+human_size() {
+    numfmt --to=iec-i --suffix=B "$1"
+}
+
+status() {
+    local slot target size attrs active mode
+
+    active="$(active_slot)"
+    if [[ -d /sys/firmware/efi ]]; then
+        mode="UEFI"
+    else
+        mode="Android boot image / direct firmware hand-off"
+    fi
+
+    printf 'boot mode:   %s\n' "$mode"
+    printf 'active slot: %s\n' "$active"
+    for slot in a b; do
+        if target="$(partition_path "$slot" 2>/dev/null)"; then
+            size="$(lsblk -bdnro SIZE "$target")"
+            attrs="$(lsblk -dnro PARTFLAGS "$target")"
+            printf 'boot_%s:      %s (%s, GPT attrs: %s)\n' \
+                "$slot" "$target" "$(human_size "$size")" "${attrs:-none}"
+        else
+            printf 'boot_%s:      missing\n' "$slot"
+        fi
+    done
+    if [[ -f "$DEFAULT_IMAGE" ]]; then
+        size="$(stat -c %s "$DEFAULT_IMAGE")"
+        printf 'image:       %s (%s)\n' "$DEFAULT_IMAGE" "$(human_size "$size")"
+    elif [[ -d /boot && ! -x /boot ]]; then
+        printf 'image:       %s (inaccessible; run status as root)\n' "$DEFAULT_IMAGE"
+    else
+        printf 'image:       %s (missing)\n' "$DEFAULT_IMAGE"
+    fi
+}
+
+require_safe_target() {
+    local requested_slot="$1"
+    local allow_active="$2"
+    local current
+
+    current="$(active_slot)"
+    if [[ "$current" == unknown && "$allow_active" != 1 ]]; then
+        die "cannot determine the active slot; refusing without --force-active"
+    fi
+    if [[ "$current" == "$requested_slot" && "$allow_active" != 1 ]]; then
+        die "boot_$requested_slot is active; use the inactive slot or pass --force-active"
+    fi
+}
+
+lock_writes() {
+    install -d -m0755 /run/lock
+    exec 9>/run/lock/sheng-boot-slot.lock
+    flock -n 9 || die "another sheng-boot-slot operation is running"
+}
+
+install_image() {
+    local slot="$1" image="$2" backup_dir="$3" force_active="$4"
+    local target partition_size image_size available timestamp backup manifest
+    local before_hash backup_hash image_hash written_hash
+
+    ((EUID == 0)) || die "install must run as root"
+    require_safe_target "$slot" "$force_active"
+    lock_writes
+
+    image="$(realpath -e -- "$image")" || die "image not found: $image"
+    [[ -f "$image" ]] || die "not a regular file: $image"
+    target="$(partition_path "$slot")"
+    partition_size="$(blockdev --getsize64 "$target")"
+    image_size="$(stat -c %s "$image")"
+    ((image_size > 0)) || die "image is empty: $image"
+    ((image_size <= partition_size)) || \
+        die "image ($(human_size "$image_size")) exceeds boot_$slot ($(human_size "$partition_size"))"
+
+    install -d -m0700 -- "$backup_dir"
+    backup_dir="$(realpath -e -- "$backup_dir")"
+    available="$(df -B1 --output=avail "$backup_dir" | awk 'NR == 2 {print $1}')"
+    ((available >= partition_size + 16 * 1024 * 1024)) || \
+        die "insufficient free space for a full boot_$slot backup"
+
+    timestamp="$(date -u +%Y%m%dT%H%M%SZ)"
+    backup="$backup_dir/boot_${slot}-${timestamp}.img"
+    manifest="$backup.sha256"
+
+    printf 'Backing up %s to %s\n' "$target" "$backup"
+    before_hash="$(sha256sum "$target" | awk '{print $1}')"
+    dd if="$target" of="$backup" bs=4M iflag=fullblock conv=fsync status=progress
+    chmod 0600 "$backup"
+    backup_hash="$(sha256sum "$backup" | awk '{print $1}')"
+    [[ "$backup_hash" == "$before_hash" ]] || die "backup verification failed"
+
+    image_hash="$(sha256sum "$image" | awk '{print $1}')"
+    {
+        printf 'slot=%s\n' "$slot"
+        printf 'target=%s\n' "$target"
+        printf 'partition_size=%s\n' "$partition_size"
+        printf 'active_slot_at_install=%s\n' "$(active_slot)"
+        printf 'backup_sha256=%s\n' "$backup_hash"
+        printf 'image=%s\n' "$image"
+        printf 'image_size=%s\n' "$image_size"
+        printf 'image_sha256=%s\n' "$image_hash"
+    } >"$manifest"
+    chmod 0600 "$manifest"
+
+    printf 'Writing %s to inactive boot_%s\n' "$image" "$slot"
+    dd if="$image" of="$target" bs=4M iflag=fullblock conv=fsync,notrunc status=progress
+    blockdev --flushbufs "$target"
+    cmp -n "$image_size" -- "$image" "$target" || \
+        die "write verification failed; backup is $backup"
+    written_hash="$(head -c "$image_size" "$target" | sha256sum | awk '{print $1}')"
+    [[ "$written_hash" == "$image_hash" ]] || \
+        die "write hash mismatch; backup is $backup"
+
+    printf 'written_prefix_sha256=%s\n' "$written_hash" >>"$manifest"
+    printf 'Installed and verified boot_%s. Backup: %s\n' "$slot" "$backup"
+}
+
+restore_image() {
+    local slot="$1" backup="$2" force_active="$3"
+    local target partition_size backup_size backup_hash target_hash
+
+    ((EUID == 0)) || die "restore must run as root"
+    require_safe_target "$slot" "$force_active"
+    lock_writes
+
+    backup="$(realpath -e -- "$backup")" || die "backup not found: $backup"
+    [[ -f "$backup" ]] || die "not a regular file: $backup"
+    target="$(partition_path "$slot")"
+    partition_size="$(blockdev --getsize64 "$target")"
+    backup_size="$(stat -c %s "$backup")"
+    [[ "$backup_size" == "$partition_size" ]] || \
+        die "backup size does not exactly match boot_$slot"
+
+    backup_hash="$(sha256sum "$backup" | awk '{print $1}')"
+    printf 'Restoring %s to boot_%s\n' "$backup" "$slot"
+    dd if="$backup" of="$target" bs=4M iflag=fullblock conv=fsync status=progress
+    blockdev --flushbufs "$target"
+    target_hash="$(sha256sum "$target" | awk '{print $1}')"
+    [[ "$target_hash" == "$backup_hash" ]] || die "restore verification failed"
+    printf 'Restored and verified boot_%s (%s)\n' "$slot" "$backup_hash"
+}
+
+main() {
+    local command="${1:-}" slot="" image="$DEFAULT_IMAGE"
+    local backup_dir="$DEFAULT_BACKUP_DIR" backup="" force_active=0
+
+    case "$command" in
+        status)
+            (($# == 1)) || die "status takes no options"
+            status
+            return
+            ;;
+        install|restore) shift ;;
+        -h|--help|help) usage; return ;;
+        *) usage >&2; exit 2 ;;
+    esac
+
+    while (($# > 0)); do
+        case "$1" in
+            --slot)
+                (($# >= 2)) || die "--slot requires a value"
+                slot="$2"
+                shift 2
+                ;;
+            --image)
+                (($# >= 2)) || die "--image requires a value"
+                image="$2"
+                shift 2
+                ;;
+            --backup-dir)
+                (($# >= 2)) || die "--backup-dir requires a value"
+                backup_dir="$2"
+                shift 2
+                ;;
+            --backup)
+                (($# >= 2)) || die "--backup requires a value"
+                backup="$2"
+                shift 2
+                ;;
+            --force-active) force_active=1; shift ;;
+            -h|--help) usage; return ;;
+            *) die "unknown option: $1" ;;
+        esac
+    done
+
+    [[ "$slot" == a || "$slot" == b ]] || die "--slot must be a or b"
+    case "$command" in
+        install)
+            [[ -z "$backup" ]] || die "--backup is only valid with restore"
+            install_image "$slot" "$image" "$backup_dir" "$force_active"
+            ;;
+        restore)
+            [[ -n "$backup" ]] || die "restore requires --backup FILE"
+            restore_image "$slot" "$backup" "$force_active"
+            ;;
+    esac
+}
+
+main "$@"

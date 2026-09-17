@@ -1,0 +1,791 @@
+diff --git a/crates/hexagonrpc/src/context.rs b/crates/hexagonrpc/src/context.rs
+index d1cb32f..cf28219 100644
+--- a/crates/hexagonrpc/src/context.rs
++++ b/crates/hexagonrpc/src/context.rs
+@@ -33,6 +33,6 @@ pub fn fastrpc(
+     def: &MethodDef,
+     ctx: &FastrpcContext,
+     args: &mut InvokeArgs<'_>,
+-) -> Result<(), InvokeError> {
++) -> Result<i32, InvokeError> {
+     vfastrpc2(ctx.fd, ctx.handle, def, args)
+ }
+diff --git a/crates/hexagonrpc/src/fastrpc.rs b/crates/hexagonrpc/src/fastrpc.rs
+index 4e2fedc..fc4465b 100644
+--- a/crates/hexagonrpc/src/fastrpc.rs
++++ b/crates/hexagonrpc/src/fastrpc.rs
+@@ -56,12 +56,16 @@ pub struct InvokeArgs<'a> {
+ }
+ 
+ /// Invoke a remote method on `fd` for `handle`, following `def`.
++///
++/// The returned `i32` is the raw result reported by the remote method.  A
++/// successful invocation normally returns zero; non-zero AEE results are not
++/// ioctl failures and must be handled by the caller.
+ pub fn fastrpc2(
+     fd: RawFd,
+     handle: u32,
+     def: &MethodDef,
+     args: &mut InvokeArgs<'_>,
+-) -> Result<(), InvokeError> {
++) -> Result<i32, InvokeError> {
+     vfastrpc2(fd, handle, def, args)
+ }
+ 
+@@ -71,7 +75,7 @@ pub fn vfastrpc2(
+     handle: u32,
+     def: &MethodDef,
+     args: &mut InvokeArgs<'_>,
+-) -> Result<(), InvokeError> {
++) -> Result<i32, InvokeError> {
+     // Validate the argument layout against the signature before touching
+     // any pointers (upstream #359: validate remote API entry points).
+     if args.in_nums.len() != def.in_nums as usize
+@@ -149,15 +153,16 @@ pub fn vfastrpc2(
+ 
+     // SAFETY: `invoke` points to a live `fastrpc_invoke` of the exact type
+     // the kernel expects for FASTRPC_IOCTL_INVOKE.
+-    unsafe {
+-        hexagonrpc_sys::ioctl_arg(fd, ioctl::INVOKE, &mut invoke).map_err(|e| InvokeError(e.0))?;
+-    }
++    let remote_result = unsafe {
++        hexagonrpc_sys::ioctl_arg_ret(fd, ioctl::INVOKE, &mut invoke)
++            .map_err(|e| InvokeError(e.0))?
++    };
+ 
+     // Copy the output scalars back out of the first output buffer.
+     args.out_nums
+         .copy_from_slice(&outbuf[..def.out_nums as usize]);
+ 
+-    Ok(())
++    Ok(remote_result)
+ }
+ 
+ #[cfg(test)]
+diff --git a/crates/hexagonrpc/src/remotectl.rs b/crates/hexagonrpc/src/remotectl.rs
+index 59da661..ebb2e4b 100644
+--- a/crates/hexagonrpc/src/remotectl.rs
++++ b/crates/hexagonrpc/src/remotectl.rs
+@@ -15,8 +15,15 @@ use crate::interfaces::remotectl::{REMOTECTL_HANDLE, remotectl_close_def, remote
+ pub enum RemoteError {
+     /// The invocation itself failed (`errno`).
+     Io(InvokeError),
+-    /// The remote loader reported an error (`dlret` from the DSP).
+-    Dl(u32),
++    /// The remote method itself returned a non-zero AEE result.
++    Invoke(u32),
++    /// The remote loader reported an error (`dlret` and `dlerror` from DSP).
++    Dl {
++        /// Numeric loader result returned in `dlret`.
++        code: u32,
++        /// Bounded, NUL-terminated diagnostic returned in `dlerror`.
++        message: String,
++    },
+     /// The requested interface does not exist on the remote side.
+     NotFound,
+ }
+@@ -25,8 +32,20 @@ impl std::fmt::Display for RemoteError {
+     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+         match self {
+             RemoteError::Io(e) => write!(f, "{e}"),
+-            RemoteError::Dl(code) => {
+-                write!(f, "remote loader error {} ({})", code, aee::strerror(*code))
++            RemoteError::Invoke(code) => {
++                write!(
++                    f,
++                    "remote invocation error {} ({})",
++                    code,
++                    aee::strerror(*code)
++                )
++            }
++            RemoteError::Dl { code, message } => {
++                write!(f, "remote loader error {} ({})", code, aee::strerror(*code))?;
++                if !message.is_empty() {
++                    write!(f, ": {message}")?;
++                }
++                Ok(())
+             }
+             RemoteError::NotFound => write!(f, "interface not found"),
+         }
+@@ -54,7 +73,11 @@ pub fn remotectl_open(fd: RawFd, name: &str) -> Result<FastrpcContext, RemoteErr
+         out_bufs: &mut [&mut err],
+     };
+ 
+-    fastrpc2(fd, REMOTECTL_HANDLE, &remotectl_open_def, &mut args).map_err(RemoteError::Io)?;
++    let ret =
++        fastrpc2(fd, REMOTECTL_HANDLE, &remotectl_open_def, &mut args).map_err(RemoteError::Io)?;
++    if ret != 0 {
++        return Err(RemoteError::Invoke(ret as u32));
++    }
+ 
+     let [handle, dlret] = out_nums;
+ 
+@@ -63,7 +86,10 @@ pub fn remotectl_open(fd: RawFd, name: &str) -> Result<FastrpcContext, RemoteErr
+             // The remote convention: 5 means "interface not found".
+             return Err(RemoteError::NotFound);
+         }
+-        return Err(RemoteError::Dl(dlret));
++        return Err(RemoteError::Dl {
++            code: dlret,
++            message: decode_dlerror(&err),
++        });
+     }
+ 
+     Ok(FastrpcContext { fd, handle })
+@@ -81,12 +107,42 @@ pub fn remotectl_close(ctx: &FastrpcContext) -> Result<(), RemoteError> {
+         out_bufs: &mut [&mut err],
+     };
+ 
+-    fastrpc2(ctx.fd, REMOTECTL_HANDLE, &remotectl_close_def, &mut args).map_err(RemoteError::Io)?;
++    let ret = fastrpc2(ctx.fd, REMOTECTL_HANDLE, &remotectl_close_def, &mut args)
++        .map_err(RemoteError::Io)?;
++    if ret != 0 {
++        return Err(RemoteError::Invoke(ret as u32));
++    }
+ 
+     fastrpc_destroy_context(*ctx);
+     let [dlret] = out_nums;
+     if dlret != 0 {
+-        return Err(RemoteError::Dl(dlret));
++        return Err(RemoteError::Dl {
++            code: dlret,
++            message: decode_dlerror(&err),
++        });
+     }
+     Ok(())
+ }
++
++fn decode_dlerror(buffer: &[u8]) -> String {
++    let end = buffer
++        .iter()
++        .position(|byte| *byte == 0)
++        .unwrap_or(buffer.len());
++    String::from_utf8_lossy(&buffer[..end]).trim().to_string()
++}
++
++#[cfg(test)]
++mod tests {
++    use super::*;
++
++    #[test]
++    fn decodes_bounded_loader_message() {
++        assert_eq!(
++            decode_dlerror(b"dynamic load failed\0ignored"),
++            "dynamic load failed"
++        );
++        assert_eq!(decode_dlerror(b"not terminated"), "not terminated");
++        assert_eq!(decode_dlerror(&[0; 8]), "");
++    }
++}
+diff --git a/crates/hexagonrpcd/src/interfaces.rs b/crates/hexagonrpcd/src/interfaces.rs
+index ab54c85..ce714e5 100644
+--- a/crates/hexagonrpcd/src/interfaces.rs
++++ b/crates/hexagonrpcd/src/interfaces.rs
+@@ -17,7 +17,19 @@ pub mod adsp_listener {
+ 
+     method_def!(3, init2_def, 0, 0, 0, 0);
+     method_def!(4, next2_def, 2, 1, 4, 1);
+-    method_def!(5, get_in_bufs2_def, 3, 0, 1, 1);
++    method_def!(5, get_in_bufs2_def, 2, 0, 1, 1);
++}
++
++pub mod adsp_listener1 {
++    //! Domain-aware reverse-tunnel listener implemented by current DSP shells.
++    use hexagonrpc::method_def;
++
++    /// Handle of the domain-aware static listener interface.
++    pub const HANDLE: u32 = 7;
++
++    method_def!(5, init2_def, 0, 0, 0, 0);
++    method_def!(6, next2_def, 2, 1, 4, 1);
++    method_def!(7, get_in_bufs2_def, 2, 0, 1, 1);
+ }
+ 
+ pub mod adsp_default_listener {
+@@ -27,6 +39,18 @@ pub mod adsp_default_listener {
+     method_def!(0, register_def, 0, 0, 0, 0);
+ }
+ 
++pub mod adsp_default_listener1 {
++    //! Domain-aware default-listener interface used by current FastRPC shells.
++    //!
++    //! Qualcomm's generated `adsp_default_listener1` stub opens the interface
++    //! URI and invokes method 2 to register the host listener.  Methods 0 and
++    //! 1 are the QAIC open/close helpers and are not invoked on the returned
++    //! remote handle.
++    use hexagonrpc::method_def;
++
++    method_def!(2, register_def, 0, 0, 0, 0);
++}
++
+ pub mod remotectl {
+     //! The remote interface open/close interface (implemented here).
+     use hexagonrpc::method_def;
+diff --git a/crates/hexagonrpcd/src/listener.rs b/crates/hexagonrpcd/src/listener.rs
+index ecfb11b..9faec64 100644
+--- a/crates/hexagonrpcd/src/listener.rs
++++ b/crates/hexagonrpcd/src/listener.rs
+@@ -22,11 +22,52 @@ use hexagonrpc::fastrpc::{InvokeArgs, InvokeError, fastrpc2};
+ use hexagonrpc::interface::MethodDef;
+ use hexagonrpc::scalars::{scalars_inbufs, scalars_outbufs};
+ 
+-use crate::interfaces::adsp_listener::{self, HANDLE as LISTENER_HANDLE};
++use crate::interfaces::{adsp_listener, adsp_listener1};
+ use crate::iobuffer::{DecodedRequest, IoBuf, MAX_BLOB_SIZE, decode_request, outbufs_encode};
+ 
+ /// Initial size of the request blob buffer.
+ const INITIAL_BLOB_SIZE: usize = 256;
++const DSP_AEE_ENOSUCHMOD: u32 = 0x8000_043e;
++const DSP_AEE_ERPC: u32 = 0x8000_0600;
++
++/// DSP-side reverse-listener ABI.
++#[derive(Debug, Clone, Copy, PartialEq, Eq)]
++pub enum ListenerProtocol {
++    /// Legacy `adsp_listener` fixed handle and method ids.
++    Legacy,
++    /// Domain-aware `adsp_listener1` fixed handle and method ids.
++    Domain,
++}
++
++impl ListenerProtocol {
++    fn handle(self) -> u32 {
++        match self {
++            Self::Legacy => adsp_listener::HANDLE,
++            Self::Domain => adsp_listener1::HANDLE,
++        }
++    }
++
++    fn init2_def(self) -> &'static MethodDef {
++        match self {
++            Self::Legacy => &adsp_listener::init2_def,
++            Self::Domain => &adsp_listener1::init2_def,
++        }
++    }
++
++    fn next2_def(self) -> &'static MethodDef {
++        match self {
++            Self::Legacy => &adsp_listener::next2_def,
++            Self::Domain => &adsp_listener1::next2_def,
++        }
++    }
++
++    fn get_in_bufs2_def(self) -> &'static MethodDef {
++        match self {
++            Self::Legacy => &adsp_listener::get_in_bufs2_def,
++            Self::Domain => &adsp_listener1::get_in_bufs2_def,
++        }
++    }
++}
+ 
+ /// One remote interface served by the daemon.
+ pub trait RpcInterface {
+@@ -92,19 +133,49 @@ impl std::error::Error for ListenerError {}
+ 
+ /// Run the reverse-tunnel listener loop until the DSP goes away or the
+ /// loop cannot continue.
+-pub fn run_listener(fd: RawFd, ifaces: &mut [Box<dyn RpcInterface>]) -> Result<(), ListenerError> {
+-    let ret = adsp_listener_init2(fd).map_err(ListenerError::Io)?;
+-    if ret != 0 {
+-        return Err(ListenerError::Init(ret));
++pub fn initialize_listener(
++    fd: RawFd,
++    requested: ListenerProtocol,
++) -> Result<ListenerProtocol, ListenerError> {
++    let ret = adsp_listener_init2(fd, requested).map_err(ListenerError::Io)?;
++    if ret == 0 {
++        return Ok(requested);
+     }
+ 
++    // This is the exact compatibility fallback in Qualcomm's
++    // listener_android.c: current clients first try adsp_listener1, while
++    // older DSP shells report ERPC or ENOSUCHMOD and require adsp_listener.
++    if requested == ListenerProtocol::Domain && matches!(ret, DSP_AEE_ERPC | DSP_AEE_ENOSUCHMOD) {
++        crate::log::info(&format!(
++            "domain listener unavailable (0x{ret:08x}); falling back to legacy listener"
++        ));
++        let legacy_ret =
++            adsp_listener_init2(fd, ListenerProtocol::Legacy).map_err(ListenerError::Io)?;
++        if legacy_ret == 0 {
++            return Ok(ListenerProtocol::Legacy);
++        }
++        return Err(ListenerError::Init(legacy_ret));
++    }
++    Err(ListenerError::Init(ret))
++}
++
++/// Run an already initialized reverse-tunnel listener until the DSP stops.
++///
++/// Initialization is deliberately separate so daemons can follow Qualcomm's
++/// required ordering: initialize the reverse listener, register it as the
++/// PD's default listener, then enter the blocking request loop.
++pub fn run_initialized_listener(
++    fd: RawFd,
++    ifaces: &mut [Box<dyn RpcInterface>],
++    protocol: ListenerProtocol,
++) -> Result<(), ListenerError> {
+     // No prior invocation: success, no payload.
+     let mut result: u32 = 0;
+     let mut rctx: u32 = 0;
+     let mut outbufs: Vec<IoBuf> = Vec::new();
+ 
+     loop {
+-        let request = fetch_request(fd, &mut rctx, result, &outbufs)?;
++        let request = fetch_request(fd, &mut rctx, result, &outbufs, protocol)?;
+         crate::log::debug(&format!(
+             "request: handle={} sc=0x{:08x} blob={} bytes",
+             request.handle,
+@@ -143,11 +214,12 @@ fn fetch_request(
+     rctx: &mut u32,
+     prev_result: u32,
+     prev_outbufs: &[IoBuf],
++    protocol: ListenerProtocol,
+ ) -> Result<Request, ListenerError> {
+     let prev_blob = outbufs_encode(prev_outbufs);
+ 
+     let (ret, ctx, handle, sc, blob, len_req) =
+-        next2(fd, *rctx, prev_result, &prev_blob).map_err(ListenerError::Io)?;
++        next2(fd, *rctx, prev_result, &prev_blob, protocol).map_err(ListenerError::Io)?;
+ 
+     if ret != 0 {
+         // The DSP rejected the previous response. Retry once without a
+@@ -158,7 +230,7 @@ fn fetch_request(
+         }
+         crate::log::debug(&format!("next2 returned {ret}, retrying without payload"));
+         let (ret, ctx, handle, sc, blob, _) =
+-            next2(fd, *rctx, ret, &[]).map_err(ListenerError::Io)?;
++            next2(fd, *rctx, ret, &[], protocol).map_err(ListenerError::Io)?;
+         if ret != 0 {
+             return Err(ListenerError::Stopped(ret));
+         }
+@@ -180,7 +252,7 @@ fn fetch_request(
+         // the remainder starts at the old capacity.
+         let old_len = blob.len();
+         blob.resize(total, 0);
+-        let (ret, req) = get_in_bufs2(fd, ctx, old_len as u32, &mut blob[old_len..])
++        let (ret, req) = get_in_bufs2(fd, ctx, old_len as u32, &mut blob[old_len..], protocol)
+             .map_err(ListenerError::Io)?;
+         if ret != 0 {
+             crate::log::debug(&format!("get_in_bufs2 returned {ret}"));
+@@ -382,15 +454,15 @@ fn prim_word(prim: &IoBuf, i: usize) -> usize {
+ }
+ 
+ /// `adsp_listener_init2`: initialize the listener on the DSP.
+-pub fn adsp_listener_init2(fd: RawFd) -> Result<u32, InvokeError> {
++pub fn adsp_listener_init2(fd: RawFd, protocol: ListenerProtocol) -> Result<u32, InvokeError> {
+     let mut args = InvokeArgs {
+         in_nums: &[],
+         in_bufs: &[],
+         out_nums: &mut [],
+         out_bufs: &mut [],
+     };
+-    fastrpc2(fd, LISTENER_HANDLE, &adsp_listener::init2_def, &mut args)?;
+-    Ok(0)
++    let ret = fastrpc2(fd, protocol.handle(), protocol.init2_def(), &mut args)?;
++    Ok(ret as u32)
+ }
+ 
+ /// `adsp_listener_next2`: post `prev_result`/`prev_blob` and fetch the
+@@ -401,6 +473,7 @@ fn next2(
+     prev_ctx: u32,
+     prev_result: u32,
+     prev_blob: &[u8],
++    protocol: ListenerProtocol,
+ ) -> Result<(u32, u32, u32, u32, Vec<u8>, u32), InvokeError> {
+     let mut blob = vec![0u8; INITIAL_BLOB_SIZE];
+     let mut out_nums = [0u32; 4];
+@@ -411,9 +484,9 @@ fn next2(
+         out_nums: &mut out_nums,
+         out_bufs: &mut [&mut blob],
+     };
+-    fastrpc2(fd, LISTENER_HANDLE, &adsp_listener::next2_def, &mut args)?;
++    let ret = fastrpc2(fd, protocol.handle(), protocol.next2_def(), &mut args)?;
+     let [ctx, handle, sc, len_req] = out_nums;
+-    Ok((0, ctx, handle, sc, blob, len_req))
++    Ok((ret as u32, ctx, handle, sc, blob, len_req))
+ }
+ 
+ /// `adsp_listener_get_in_bufs2`: fetch the remainder of a request blob
+@@ -423,22 +496,23 @@ fn get_in_bufs2(
+     ctx: u32,
+     offset: u32,
+     blob: &mut [u8],
++    protocol: ListenerProtocol,
+ ) -> Result<(u32, u32), InvokeError> {
+     let mut out_nums = [0u32; 1];
+     let mut args = InvokeArgs {
+-        in_nums: &[ctx, offset, blob.len() as u32],
++        in_nums: &[ctx, offset],
+         in_bufs: &[],
+         out_nums: &mut out_nums,
+         out_bufs: &mut [blob],
+     };
+-    fastrpc2(
++    let ret = fastrpc2(
+         fd,
+-        LISTENER_HANDLE,
+-        &adsp_listener::get_in_bufs2_def,
++        protocol.handle(),
++        protocol.get_in_bufs2_def(),
+         &mut args,
+     )?;
+     let [len_req] = out_nums;
+-    Ok((0, len_req))
++    Ok((ret as u32, len_req))
+ }
+ 
+ /// Build the daemon's static interface table: `remotectl` at handle 0,
+@@ -553,6 +627,12 @@ mod tests {
+         }
+     }
+ 
++    #[test]
++    fn domain_fallback_codes_match_qualcomm_abi() {
++        assert_eq!(DSP_AEE_ENOSUCHMOD, 0x8000_043e);
++        assert_eq!(DSP_AEE_ERPC, 0x8000_0600);
++    }
++
+     #[test]
+     fn dispatch_rejects_handles() {
+         let mut ifaces: Vec<Box<dyn RpcInterface>> = vec![Box::new(Dummy)];
+diff --git a/crates/hexagonrpcd/src/main.rs b/crates/hexagonrpcd/src/main.rs
+index b385bba..b667337 100644
+--- a/crates/hexagonrpcd/src/main.rs
++++ b/crates/hexagonrpcd/src/main.rs
+@@ -7,7 +7,8 @@
+ //! Exit codes follow upstream `dsprpcd` semantics so systemd can decide
+ //! whether to restart: setup errors exit 4, and the listener propagates
+ //! AEE errors (notably 2 = ENOMEM and 114 = device inaccessible) as its
+-//! exit status.
++//! exit status. Permanent ENOMEM/device-inaccessible failures retain exit
++//! codes 2/114 even when they happen during PD creation or listener init.
+ //!
+ //! SPDX-License-Identifier: GPL-3.0-or-later
+ 
+@@ -20,8 +21,11 @@ use hexagonrpc_sys::{
+     fastrpc_alloc_dma_buf, fastrpc_init_create, fastrpc_init_create_static, ioctl, ptr_to_u64,
+ };
+ 
+-use hexagonrpcd::interfaces::adsp_default_listener;
+-use hexagonrpcd::listener::{ListenerError, run_listener, static_interfaces};
++use hexagonrpcd::interfaces::{adsp_default_listener, adsp_default_listener1};
++use hexagonrpcd::listener::{
++    ListenerError, ListenerProtocol, initialize_listener, run_initialized_listener,
++    static_interfaces,
++};
+ use hexagonrpcd::{config::Config, log, rpcd_builder};
+ 
+ /// Exit code for command-line and setup errors (matches the C daemon).
+@@ -30,6 +34,8 @@ const EXIT_SETUP: u8 = 4;
+ /// Static PD memory size (audio PD convention).
+ const STATIC_PD_MEMLEN: u32 = 3 * 1024 * 1024;
+ const STATIC_PD_NAME_MAX: usize = 128;
++/// Qualcomm process attribute selecting an unsigned user PD.
++const PROCESS_ATTR_UNSIGNED_MODULE: u32 = 0x8;
+ 
+ struct Options {
+     device: Option<String>,
+@@ -37,6 +43,7 @@ struct Options {
+     dsp: String,
+     sensors_pd: bool,
+     create_shell: Option<String>,
++    unsigned_pd: bool,
+     static_pd: Option<String>,
+     clients: Vec<String>,
+ }
+@@ -48,6 +55,7 @@ fn print_usage(prog: &str) {
+          Options:\n\
+          \t-a STATICPD\tCreate a named static PD (INIT_CREATE_STATIC)\n\
+          \t-c SHELL\tCreate a new pd running the specified ELF\n\
++         \t-u\t\tCreate -c SHELL as an unsigned user PD\n\
+          \t-d DSP\t\tDSP name (default: empty)\n\
+          \t-f DEVICE\tFastRPC device node to attach to\n\
+          \t-p PROGRAM\tRun client program with shared file descriptor\n\
+@@ -67,6 +75,7 @@ fn parse_args() -> Result<Options, ()> {
+         dsp: String::new(),
+         sensors_pd: false,
+         create_shell: None,
++        unsigned_pd: false,
+         static_pd: None,
+         clients: Vec::new(),
+     };
+@@ -95,6 +104,7 @@ fn parse_args() -> Result<Options, ()> {
+             "-R" => opts.root_dir = take_value("-R", &mut i)?,
+             "-d" => opts.dsp = take_value("-d", &mut i)?,
+             "-c" => opts.create_shell = Some(take_value("-c", &mut i)?),
++            "-u" | "--unsigned" => opts.unsigned_pd = true,
+             "-a" => opts.static_pd = Some(take_value("-a", &mut i)?),
+             "-p" => opts.clients.push(take_value("-p", &mut i)?),
+             "-s" => opts.sensors_pd = true,
+@@ -126,6 +136,10 @@ fn parse_args() -> Result<Options, ()> {
+         eprintln!("{prog}: -s, -a and -c are mutually exclusive");
+         return Err(());
+     }
++    if opts.unsigned_pd && opts.create_shell.is_none() {
++        eprintln!("{prog}: -u/--unsigned requires -c SHELL");
++        return Err(());
++    }
+     Ok(opts)
+ }
+ 
+@@ -177,42 +191,72 @@ fn main() -> ExitCode {
+     } else if let Some(name) = &opts.static_pd {
+         create_static_pd(fd, name)
+     } else if let Some(shell) = &opts.create_shell {
+-        create_shell_pd(fd, shell)
++        let attrs = if opts.unsigned_pd {
++            PROCESS_ATTR_UNSIGNED_MODULE
++        } else {
++            0
++        };
++        create_shell_pd(fd, shell, attrs)
+     } else {
+         hexagonrpc_sys::ioctl_noarg(fd, ioctl::INIT_ATTACH)
+     };
+ 
+     if let Err(e) = attach {
+         log::info(&format!("could not attach to FastRPC node: {e}"));
+-        return ExitCode::from(EXIT_SETUP);
+-    }
+-
+-    let mut children = Vec::new();
+-    for prog in &opts.clients {
+-        match start_client(fd, prog) {
+-            Ok(child) => children.push(child),
+-            Err(e) => {
+-                log::info(&format!("could not start client {prog}: {e}"));
+-                terminate_clients(&mut children);
+-                return ExitCode::from(EXIT_SETUP);
+-            }
+-        }
++        return ExitCode::from(ioctl_setup_exit(e));
+     }
+ 
+     let cfg = Config::load(&root_dir);
+     let root = rpcd_builder::construct_root(&root_dir, &opts.dsp, &cfg);
+ 
+     let mut ifaces = static_interfaces(fd, &root, &opts.dsp);
++    let mut children = Vec::new();
+ 
+-    let exit = match register_listener(fd) {
+-        Ok(()) => match run_listener(fd, &mut ifaces) {
+-            Ok(()) => 0,
+-            Err(ListenerError::Stopped(code)) => code as u8,
+-            Err(e) => {
+-                log::info(&format!("listener failed: {e}"));
+-                1
++    let use_domain_listener = opts.static_pd.is_some() && !opts.dsp.is_empty();
++    let requested_listener_protocol = if use_domain_listener {
++        ListenerProtocol::Domain
++    } else {
++        ListenerProtocol::Legacy
++    };
++    let listener_protocol = match initialize_listener(fd, requested_listener_protocol) {
++        Ok(protocol) => protocol,
++        Err(e) => {
++            log::info(&format!("could not initialize listener: {e}"));
++            return ExitCode::from(listener_setup_exit(&e));
++        }
++    };
++    let use_domain_registration =
++        use_domain_listener && listener_protocol == ListenerProtocol::Domain;
++    let exit = match register_listener(fd, &opts.dsp, use_domain_registration) {
++        Ok(listener_ctx) => {
++            // A client may load a skeleton through apps_std immediately.
++            // Start it only after the reverse listener has been registered;
++            // otherwise its first file request can race an unavailable
++            // listener and deadlock daemon startup.
++            for prog in &opts.clients {
++                match start_client(fd, prog) {
++                    Ok(child) => children.push(child),
++                    Err(e) => {
++                        log::info(&format!("could not start client {prog}: {e}"));
++                        terminate_clients(&mut children);
++                        return ExitCode::from(EXIT_SETUP);
++                    }
++                }
+             }
+-        },
++            let listener_result = match run_initialized_listener(fd, &mut ifaces, listener_protocol)
++            {
++                Ok(()) => 0,
++                Err(ListenerError::Stopped(code)) => code as u8,
++                Err(e) => {
++                    log::info(&format!("listener failed: {e}"));
++                    1
++                }
++            };
++            if let Err(e) = remotectl::remotectl_close(&listener_ctx) {
++                log::info(&format!("could not close default listener handle: {e}"));
++            }
++            listener_result
++        }
+         Err(e) => {
+             log::info(&format!("could not register listener: {e}"));
+             1
+@@ -224,27 +268,85 @@ fn main() -> ExitCode {
+ }
+ 
+ /// Attach to the default listener interface and register.
+-fn register_listener(fd: RawFd) -> Result<(), remotectl::RemoteError> {
+-    let ctx = remotectl::remotectl_open(fd, "adsp_default_listener")?;
++///
++/// Current domain-aware FastRPC daemons use the built-in
++/// `adsp_default_listener1` skeleton and method 2.  The legacy name/method 0
++/// path remains available for root and sensors PD firmware.  Keep the remote
++/// handle open for the lifetime of the listener, matching Qualcomm's daemon;
++/// closing it early can unload the listener skeleton.
++fn register_listener(
++    fd: RawFd,
++    dsp: &str,
++    use_domain_listener: bool,
++) -> Result<hexagonrpc::FastrpcContext, remotectl::RemoteError> {
++    let (name, register_def) = if use_domain_listener {
++        (
++            default_listener1_uri(dsp),
++            &adsp_default_listener1::register_def,
++        )
++    } else {
++        (
++            "adsp_default_listener".to_string(),
++            &adsp_default_listener::register_def,
++        )
++    };
++    log::info(&format!("registering default listener through {name}"));
++    let ctx = remotectl::remotectl_open(fd, &name)?;
+     let mut args = InvokeArgs {
+         in_nums: &[],
+         in_bufs: &[],
+         out_nums: &mut [],
+         out_bufs: &mut [],
+     };
+-    let ret = fastrpc2(
+-        fd,
+-        ctx.handle,
+-        &adsp_default_listener::register_def,
+-        &mut args,
+-    );
+-    let _ = remotectl::remotectl_close(&ctx);
+-    ret.map_err(remotectl::RemoteError::Io)?;
+-    Ok(())
++    let ret = fastrpc2(fd, ctx.handle, register_def, &mut args);
++    let ret = match ret {
++        Ok(ret) => ret,
++        Err(e) => {
++            let _ = remotectl::remotectl_close(&ctx);
++            return Err(remotectl::RemoteError::Io(e));
++        }
++    };
++    if ret == 0 {
++        Ok(ctx)
++    } else {
++        let _ = remotectl::remotectl_close(&ctx);
++        Err(remotectl::RemoteError::Invoke(ret as u32))
++    }
++}
++
++fn default_listener1_uri(dsp: &str) -> String {
++    let base = "file:///libadsp_default_listener1_skel.so?\
++                adsp_default_listener1_skel_handle_invoke&_modver=1.0";
++    if dsp.is_empty() {
++        base.to_string()
++    } else {
++        format!("{base}&_dom={dsp}")
++    }
++}
++
++fn errno_setup_exit(errno: i32) -> u8 {
++    match errno {
++        libc::ENOMEM => hexagonrpc::aee::code::ENOMEMORY as u8,
++        libc::ECONNREFUSED | libc::ENODEV => hexagonrpc::aee::code::ECONNREFUSED as u8,
++        _ => EXIT_SETUP,
++    }
++}
++
++fn ioctl_setup_exit(error: hexagonrpc_sys::IoctlError) -> u8 {
++    errno_setup_exit(error.0)
++}
++
++fn listener_setup_exit(error: &ListenerError) -> u8 {
++    match error {
++        ListenerError::Io(error) => errno_setup_exit(error.0),
++        ListenerError::Init(code) | ListenerError::Stopped(code) => {
++            u8::try_from(*code).unwrap_or(EXIT_SETUP)
++        }
++    }
+ }
+ 
+ /// Create a user PD running the ELF at `path` (INIT_CREATE).
+-fn create_shell_pd(fd: RawFd, path: &str) -> Result<(), hexagonrpc_sys::IoctlError> {
++fn create_shell_pd(fd: RawFd, path: &str, attrs: u32) -> Result<(), hexagonrpc_sys::IoctlError> {
+     let mut file = match std::fs::File::open(path) {
+         Ok(f) => f,
+         Err(e) => {
+@@ -304,7 +406,7 @@ fn create_shell_pd(fd: RawFd, path: &str) -> Result<(), hexagonrpc_sys::IoctlErr
+     let mut init = fastrpc_init_create {
+         filelen: elf.len() as u32,
+         filefd: dmabuf_fd.as_raw_fd(),
+-        attrs: 0,
++        attrs,
+         siglen: 0,
+         file: ptr_to_u64(map.as_ptr()),
+     };
+@@ -315,13 +417,17 @@ fn create_shell_pd(fd: RawFd, path: &str) -> Result<(), hexagonrpc_sys::IoctlErr
+ 
+ /// Create a static PD by name (INIT_CREATE_STATIC).
+ fn create_static_pd(fd: RawFd, name: &str) -> Result<(), hexagonrpc_sys::IoctlError> {
+-    if name.is_empty() || name.len() > STATIC_PD_NAME_MAX {
++    if name.is_empty() || name.len() >= STATIC_PD_NAME_MAX {
+         return Err(hexagonrpc_sys::IoctlError(libc::EINVAL));
+     }
+     let cname =
+         std::ffi::CString::new(name).map_err(|_| hexagonrpc_sys::IoctlError(libc::EINVAL))?;
+     let mut init = fastrpc_init_create_static {
+-        namelen: name.len() as u32,
++        // The kernel ABI length includes the trailing NUL.  Qualcomm's
++        // `remote_handle*_open("createstaticpd:...")` passes strlen + 1;
++        // omitting it can create a truncated/invalid PD name while the ioctl
++        // itself still reports success.
++        namelen: cname.as_bytes_with_nul().len() as u32,
+         memlen: STATIC_PD_MEMLEN,
+         name: ptr_to_u64(cname.as_ptr()),
+     };
+@@ -449,4 +555,39 @@ mod tests {
+         let flags = unsafe { libc::fcntl(fd.as_raw_fd(), libc::F_GETFD) };
+         assert_eq!(flags & libc::FD_CLOEXEC, 0);
+     }
++
++    #[test]
++    fn domain_listener_uri_matches_qaic_form() {
++        assert_eq!(
++            default_listener1_uri("adsp"),
++            "file:///libadsp_default_listener1_skel.so?\
++             adsp_default_listener1_skel_handle_invoke&_modver=1.0&_dom=adsp"
++        );
++        assert_eq!(
++            default_listener1_uri(""),
++            "file:///libadsp_default_listener1_skel.so?\
++             adsp_default_listener1_skel_handle_invoke&_modver=1.0"
++        );
++    }
++
++    #[test]
++    fn static_pd_name_length_includes_nul() {
++        let name = std::ffi::CString::new("audiopd").unwrap();
++        assert_eq!(name.as_bytes_with_nul().len(), 8);
++        assert_eq!(name.as_bytes().len(), 7);
++    }
++
++    #[test]
++    fn permanent_setup_errors_reach_systemd_exit_codes() {
++        assert_eq!(errno_setup_exit(libc::ENOMEM), 2);
++        assert_eq!(errno_setup_exit(libc::ECONNREFUSED), 114);
++        assert_eq!(errno_setup_exit(libc::ENODEV), 114);
++        assert_eq!(errno_setup_exit(libc::ETIMEDOUT), EXIT_SETUP);
++        assert_eq!(listener_setup_exit(&ListenerError::Init(2)), 2);
++        assert_eq!(listener_setup_exit(&ListenerError::Init(114)), 114);
++        assert_eq!(
++            listener_setup_exit(&ListenerError::Init(0x8000_043e)),
++            EXIT_SETUP
++        );
++    }
+ }

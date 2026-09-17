@@ -1,26 +1,29 @@
 # Maintainer: Jacobi Lie <jssnlzxcr@gmail.com>
 pkgname=linux-xiaomi-sheng
-pkgver=7.2.0
-_tag=7.2.0
+pkgver=7.2.6.mac
+_tag=7.2.6-mac
 pkgrel=1
 pkgdesc="Mainline Linux kernel, DTBs and modules for Xiaomi Pad 6S Pro 12.4 (sheng) - Standard Uncompressed"
 arch=('aarch64')
 url="https://github.com/ianchb/sm8550-mainline"
 license=('GPL-2.0-only')
 depends=('kmod' 'mkinitcpio')
+makedepends=('dtc')
 provides=('linux' 'linux-aarch64')
 conflicts=('linux' 'linux-aarch64')
 options=('!strip')
 install="${pkgname}.install"
-source=("${pkgname}-${pkgver}.deb::${url}/releases/download/${_tag}/linux-xiaomi-sheng.deb")
-sha256sums=('1156fe800cecb6836439e30b8c693e14944dfefbb658221d0574db8a611b736a')
+source=("${pkgname}-${pkgver}.deb::${url}/releases/download/${_tag}/linux-xiaomi-sheng.deb"
+        "files.tar.gz")
+sha256sums=('25b71f836202dc524c60fefa12eb73d6e3baa25c0aaec8c2d899319026806fd2'
+            '36464ec874aa358d1b61e98bd6d16e622abf615fe597a0beb6c7dcf4fd462c7a')
 
 package() {
   cd "${srcdir}"
 
   msg2 "正在解压自 GitHub 下载的远程 Debian 数据层..."
   mkdir -p data_extracted
-  tar -xf data.tar.* -C data_extracted/
+  tar --no-same-owner -xf data.tar.* -C data_extracted/
 
   mkdir -p "${pkgdir}/boot"
   mkdir -p "${pkgdir}/usr/lib/modules"
@@ -29,16 +32,53 @@ package() {
   msg2 "正在解压内核为标准 AArch64 Image 二进制..."
   gunzip -c data_extracted/boot/Image.gz > "${pkgdir}/boot/Image"
 
-  local kerver=$(ls -1 data_extracted/lib/modules/ | head -n1)
+  local kerver
+  kerver=$(find data_extracted/lib/modules -mindepth 1 -maxdepth 1 -type d -printf '%f\n' | sort | head -n1)
   if [[ -z "$kerver" ]]; then
     error "无法从 .deb 中提取内核版本"
     return 1
   fi
   
+  msg2 "正在为 FastRPC 静态 PD 叠加低地址专用 DMA pool..."
+  dtc -@ -I dts -O dtb \
+    -o fastrpc-reserved-memory.dtbo \
+    "${srcdir}/fastrpc-reserved-memory.dtso"
+  fdtoverlay \
+    -i data_extracted/boot/sm8550-xiaomi-sheng.dtb \
+    -o sm8550-xiaomi-sheng-patched.dtb \
+    fastrpc-reserved-memory.dtbo
+
+  local pool_path="/reserved-memory/fastrpc"
+  local rpc_path="/soc@0/remoteproc@6800000/glink-edge/fastrpc"
+  local pool_phandle
+  pool_phandle="$(fdtget -t x sm8550-xiaomi-sheng-patched.dtb "${pool_path}" phandle)"
+  [[ "$(fdtget -t s sm8550-xiaomi-sheng-patched.dtb "${pool_path}" compatible)" == "shared-dma-pool" ]]
+  [[ "$(fdtget -t x sm8550-xiaomi-sheng-patched.dtb "${pool_path}" size)" == "0 1000000" ]]
+  [[ "$(fdtget -t x sm8550-xiaomi-sheng-patched.dtb "${pool_path}" alignment)" == "0 400000" ]]
+  [[ "$(fdtget -t x sm8550-xiaomi-sheng-patched.dtb "${rpc_path}" memory-region)" == "${pool_phandle}" ]]
+
+  msg2 "正在移除通用 DTB 中错误的共享蓝牙地址..."
+  local bt_path="/soc@0/geniqup@8c0000/serial@898000/bluetooth"
+  # 注意: fdtget 对 local-bd-address(byte数组)读取返回 exit=1, 即使属性存在,
+  # 因此不能用 if fdtget 探测。改用 dtc 反编译 grep 判断, 并容忍 fdtput 幂等错误。
+  if dtc -I dtb -O dts sm8550-xiaomi-sheng-patched.dtb 2>/dev/null | grep -q "local-bd-address"; then
+    fdtput -d sm8550-xiaomi-sheng-patched.dtb "${bt_path}" local-bd-address || true
+  fi
+  if dtc -I dtb -O dts sm8550-xiaomi-sheng-patched.dtb 2>/dev/null | grep -q "local-bd-address"; then
+    error "共享蓝牙地址仍存在于通用 DTB"
+    return 1
+  fi
+
   msg2 "正在搬运独立 DTB 设备树及内核配置文件..."
-  cp data_extracted/boot/sm8550-xiaomi-sheng.dtb "${pkgdir}/boot/"
+  cp sm8550-xiaomi-sheng-patched.dtb "${pkgdir}/boot/sm8550-xiaomi-sheng.dtb"
   cp data_extracted/boot/config-* "${pkgdir}/boot/"
   cp data_extracted/boot/System.map-* "${pkgdir}/boot/"
+
+  local patch_file
+  for patch_file in "${srcdir}"/*.patch; do
+    install -Dm644 "${patch_file}" \
+      "${pkgdir}/usr/share/doc/${pkgname}/$(basename "${patch_file}")"
+  done
 
   msg2 "正在迁移内核模块并执行干净化权限修复..."
   cp -r data_extracted/lib/modules/* "${pkgdir}/usr/lib/modules/"

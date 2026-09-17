@@ -1,0 +1,63 @@
+From: arch-xiaomi-sheng maintainers <noreply@example.invalid>
+Date: Mon, 24 Aug 2026 00:00:00 +0800
+Subject: [PATCH] wifi: ath12k: read MAC address from firmware properties
+
+Some platforms keep the factory address outside the WLAN board file and pass
+it through firmware properties.  ath11k already supports this using
+device_get_mac_address(), but ath12k falls back directly from an invalid WMI
+address to a random address.
+
+Read the standard IEEE 802.11 firmware property and prefer it when per-pdev WMI
+addresses are unavailable.  Reference the common wireless DT schema so the
+existing local-mac-address property is accepted by the ath12k binding.
+
+Signed-off-by: arch-xiaomi-sheng maintainers <noreply@example.invalid>
+---
+ .../bindings/net/wireless/qcom,ath12k.yaml       | 3 +++
+ drivers/net/wireless/ath/ath12k/mac.c            | 7 ++++++-
+ 2 files changed, 9 insertions(+), 1 deletion(-)
+
+diff --git a/Documentation/devicetree/bindings/net/wireless/qcom,ath12k.yaml b/Documentation/devicetree/bindings/net/wireless/qcom,ath12k.yaml
+index dc68dd59a0cd..b696eebb15e3 100644
+--- a/Documentation/devicetree/bindings/net/wireless/qcom,ath12k.yaml
++++ b/Documentation/devicetree/bindings/net/wireless/qcom,ath12k.yaml
+@@ -13,6 +13,9 @@ maintainers:
+ description:
+   Qualcomm Technologies IEEE 802.11be PCIe devices.
+ 
++allOf:
++  - $ref: ieee80211.yaml#
++
+ properties:
+   compatible:
+     enum:
+diff --git a/drivers/net/wireless/ath/ath12k/mac.c b/drivers/net/wireless/ath/ath12k/mac.c
+index 95988447c22a..30c6ee1a0377 100644
+--- a/drivers/net/wireless/ath/ath12k/mac.c
++++ b/drivers/net/wireless/ath/ath12k/mac.c
+@@ -14794,9 +14794,11 @@ static int ath12k_mac_hw_register(struct ath12k_hw *ah)
+ 	u32 ht_cap = U32_MAX, antennas_rx = 0, antennas_tx = 0;
+ 	bool is_6ghz = false, is_raw_mode = false, is_monitor_disable = false;
+ 	u8 *mac_addr = NULL;
++	u8 fwnode_mac_addr[ETH_ALEN] = {};
+ 	u8 mbssid_max_interfaces = 0;
+ 
+ 	wiphy->max_ap_assoc_sta = 0;
++	device_get_mac_address(ab->dev, fwnode_mac_addr);
+ 
+ 	for_each_ar(ah, ar, i) {
+ 		u32 ht_cap_info = 0;
+@@ -14805,7 +14807,10 @@ static int ath12k_mac_hw_register(struct ath12k_hw *ah)
+ 		if (ar->ab->pdevs_macaddr_valid) {
+ 			ether_addr_copy(ar->mac_addr, pdev->mac_addr);
+ 		} else {
+-			ether_addr_copy(ar->mac_addr, ar->ab->mac_addr);
++			if (is_valid_ether_addr(fwnode_mac_addr))
++				ether_addr_copy(ar->mac_addr, fwnode_mac_addr);
++			else
++				ether_addr_copy(ar->mac_addr, ar->ab->mac_addr);
+ 			ar->mac_addr[4] += ar->pdev_idx;
+ 		}
+ 
+-- 
+2.51.0

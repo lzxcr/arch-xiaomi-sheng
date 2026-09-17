@@ -1,0 +1,59 @@
+# Maintainer: Jacobi Lie <jssnlzxcr@gmail.com>
+
+pkgname=ksystemstats
+pkgver=6.7.5
+_dirver="${pkgver}"
+pkgrel=1
+pkgdesc='Plugin-based system monitor with support for non-PCI DRM GPUs'
+arch=('aarch64')
+url='https://kde.org/plasma-desktop/'
+license=('LGPL-2.0-or-later')
+depends=(
+  glibc
+  kcoreaddons
+  kcrash
+  ki18n
+  kio
+  libksysguard
+  libstdc++
+  lm_sensors
+  qt6-base
+  solid
+)
+makedepends=(
+  extra-cmake-modules
+  libnl
+  networkmanager-qt
+)
+optdepends=(
+  'libnl: network usage monitor'
+  'networkmanager-qt: network usage monitor'
+  'systemd-libs: GPU monitor'
+)
+groups=('plasma')
+source=(
+  "https://download.kde.org/stable/plasma/${_dirver}/${pkgname}-${pkgver}.tar.xz"
+  'files.tar.gz'
+)
+sha256sums=(
+  '27cfb9a189244b897ae23f3a8681e7c4b45cc67ec27faff8961783edce16f1fc'
+  '3ca94ae145b24999acc4f4a06c3c1fef909d30616c04c926b11ed56b2b7cee76'
+)
+
+prepare() {
+  patch -d "${pkgname}-${pkgver}" -Np1 \
+    -i "${srcdir}/0001-linux-drm-gpu-backend.patch"
+}
+
+build() {
+  cmake -B build -S "${pkgname}-${pkgver}" \
+    -DCMAKE_BUILD_TYPE=None \
+    -DCMAKE_INSTALL_LIBEXECDIR=lib \
+    -DBUILD_TESTING=OFF
+  cmake --build build --parallel "${SHENG_BUILD_JOBS:-2}"
+}
+
+package() {
+  DESTDIR="${pkgdir}" cmake --install build
+  setcap CAP_PERFMON=+ep "${pkgdir}/usr/lib/ksystemstats_intel_helper"
+}

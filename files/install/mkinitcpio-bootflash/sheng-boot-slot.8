@@ -1,0 +1,58 @@
+.TH SHENG-BOOT-SLOT 8 "August 2026" "mkinitcpio-bootflash" "System Administration"
+.SH NAME
+sheng-boot-slot \- safely install one Xiaomi sheng A/B boot slot
+.SH SYNOPSIS
+.B sheng-boot-slot status
+.br
+.B sheng-boot-slot install --slot
+.IR a | b
+.RB [ --image " " FILE ]
+.RB [ --backup-dir " " DIR ]
+.RB [ --force-active ]
+.br
+.B sheng-boot-slot restore --slot
+.IR a | b
+.B --backup
+.I FILE
+.RB [ --force-active ]
+.SH DESCRIPTION
+.B sheng-boot-slot
+never selects both slots and never writes a slot implicitly.  Installation
+backs up the complete selected partition before writing, verifies that backup,
+then verifies the written image prefix.  Restoration requires a complete backup
+whose size exactly matches the selected partition.
+.PP
+The active slot is discovered from Android boot arguments and the vbmeta
+PARTUUID.  It is refused by default.  If discovery is impossible, writes are
+also refused by default.
+.SH OPTIONS
+.TP
+.B --slot a|b
+Select exactly one target slot.
+.TP
+.BI --image " FILE"
+Image to install.  The default is /boot/boot.img.
+.TP
+.BI --backup-dir " DIR"
+Directory for full-partition backups.  The default is
+/var/lib/sheng-boot-slot.
+.TP
+.BI --backup " FILE"
+Full-partition backup to restore.
+.TP
+.B --force-active
+Permit a write when the selected slot is active or active-slot discovery
+failed.  This option removes an important recovery safeguard.
+.SH FILES
+.TP
+.I /dev/disk/by-partlabel/boot_a
+.TP
+.I /dev/disk/by-partlabel/boot_b
+.TP
+.I /var/lib/sheng-boot-slot
+.SH EXAMPLES
+.nf
+sheng-boot-slot status
+sudo sheng-boot-slot install --slot a --image /boot/boot.img
+sudo sheng-boot-slot restore --slot a --backup /var/lib/sheng-boot-slot/boot_a-TIMESTAMP.img
+.fi

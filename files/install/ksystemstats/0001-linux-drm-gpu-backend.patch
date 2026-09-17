@@ -1,0 +1,405 @@
+diff --git a/plugins/gpu/CMakeLists.txt b/plugins/gpu/CMakeLists.txt
+index 34c0aef..61eeb45 100644
+--- a/plugins/gpu/CMakeLists.txt
++++ b/plugins/gpu/CMakeLists.txt
+@@ -9,7 +9,15 @@ if(CMAKE_SYSTEM_NAME STREQUAL "FreeBSD")
+ endif()
+ 
+ if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
+-    target_sources(ksystemstats_plugin_gpu PRIVATE LinuxAmdGpu.cpp LinuxIntelGpu.cpp LinuxNvidiaGpu.cpp LinuxBackend.cpp NvidiaGpu.cpp NvidiaSmiProcess.cpp)
++    target_sources(ksystemstats_plugin_gpu PRIVATE
++        LinuxAmdGpu.cpp
++        LinuxBackend.cpp
++        LinuxDrmGpu.cpp
++        LinuxIntelGpu.cpp
++        LinuxNvidiaGpu.cpp
++        NvidiaGpu.cpp
++        NvidiaSmiProcess.cpp
++    )
+ 
+     add_executable(ksystemstats_intel_helper IntelHelper.cpp)
+     configure_file(IntelHelperLocation.h.cmake IntelHelperLocation.h)
+@@ -41,4 +49,3 @@ ecm_qt_declare_logging_category(ksystemstats_plugin_gpu HEADER debug.h
+ )
+ 
+ install(TARGETS ksystemstats_plugin_gpu DESTINATION ${KSYSTEMSTATS_PLUGIN_INSTALL_DIR})
+-
+diff --git a/plugins/gpu/LinuxBackend.cpp b/plugins/gpu/LinuxBackend.cpp
+index 139d8a0..cfa9159 100644
+--- a/plugins/gpu/LinuxBackend.cpp
++++ b/plugins/gpu/LinuxBackend.cpp
+@@ -6,6 +6,9 @@
+ 
+ #include "LinuxBackend.h"
+ 
++#include <algorithm>
++#include <cctype>
++
+ #include <KLocalizedString>
+ 
+ #include <libudev.h>
+@@ -13,6 +16,7 @@
+ #include <processcore/gpu_utils.h>
+ 
+ #include "LinuxAmdGpu.h"
++#include "LinuxDrmGpu.h"
+ #include "LinuxIntelGpu.h"
+ #include "LinuxNvidiaGpu.h"
+ #include "debug.h"
+@@ -78,12 +82,50 @@ void LinuxBackend::start()
+     }
+ 
+     udev_enumerate_unref(enumerate);
++
++    enumerate = udev_enumerate_new(m_udev);
++    udev_enumerate_add_match_subsystem(enumerate, "drm");
++    udev_enumerate_scan_devices(enumerate);
++
++    devices = udev_enumerate_get_list_entry(enumerate);
++    for (auto entry = devices; entry; entry = udev_list_entry_get_next(entry)) {
++        const char *path = udev_list_entry_get_name(entry);
++        udev_device *drmDevice = udev_device_new_from_syspath(m_udev, path);
++        if (!drmDevice) {
++            continue;
++        }
++        const char *sysname = udev_device_get_sysname(drmDevice);
++
++        const QByteArray name = sysname ? QByteArray(sysname) : QByteArray();
++        const QByteArray cardNumber = name.sliced(sizeof("card") - 1);
++        const bool isPrimaryNode = name.startsWith("card") && !cardNumber.isEmpty()
++            && std::ranges::all_of(cardNumber, [](const char character) {
++                   return std::isdigit(static_cast<unsigned char>(character));
++               });
++        const bool hasPciParent = udev_device_get_parent_with_subsystem_devtype(drmDevice, "pci", nullptr);
++        if (!isPrimaryNode || hasPciParent) {
++            udev_device_unref(drmDevice);
++            continue;
++        }
++
++        const QString gpuId = QStringLiteral("gpu%1").arg(gpuNumber);
++        const QString gpuName = KSysGuard::gpuName(drmDevice, gpuNumber);
++        auto gpu = new LinuxDrmGpu(gpuId, gpuName, drmDevice);
++        gpu->initialize();
++        m_devices.append(gpu);
++        Q_EMIT deviceAdded(gpu);
++        gpuNumber++;
++        udev_device_unref(drmDevice);
++    }
++
++    udev_enumerate_unref(enumerate);
+ }
+ 
+ void LinuxBackend::stop()
+ {
+     qDeleteAll(m_devices);
+     udev_unref(m_udev);
++    m_udev = nullptr;
+ }
+ 
+ void LinuxBackend::update()
+diff --git a/plugins/gpu/LinuxDrmGpu.cpp b/plugins/gpu/LinuxDrmGpu.cpp
+new file mode 100644
+index 0000000..a8d321b
+--- /dev/null
++++ b/plugins/gpu/LinuxDrmGpu.cpp
+@@ -0,0 +1,257 @@
++/*
++ * SPDX-FileCopyrightText: 2026 Jacobi Lie <jssnlzxcr@gmail.com>
++ *
++ * SPDX-License-Identifier: GPL-2.0-only OR GPL-3.0-only OR LicenseRef-KDE-Accepted-GPL
++ */
++
++#include "LinuxDrmGpu.h"
++
++#include <algorithm>
++#include <cctype>
++#include <optional>
++#include <utility>
++
++#include <QDir>
++#include <QFile>
++#include <QFileInfo>
++
++#include <libudev.h>
++#include <sys/stat.h>
++#include <sys/sysmacros.h>
++
++namespace
++{
++constexpr uint drmMajor = 226;
++
++struct DrmClientData {
++    QByteArray id;
++    QHash<QByteArray, quint64> engineTimes;
++    quint64 residentMemory = 0;
++};
++
++std::optional<quint64> parseUnsigned(QByteArrayView value)
++{
++    bool ok = false;
++    const quint64 result = value.trimmed().toULongLong(&ok);
++    if (!ok) {
++        return std::nullopt;
++    }
++    return result;
++}
++
++quint64 memoryBytes(QByteArrayView value)
++{
++    const QByteArray trimmed = value.trimmed().toByteArray();
++    const qsizetype separator = trimmed.indexOf(' ');
++    const QByteArrayView amountField(trimmed.constData(), separator < 0 ? trimmed.size() : separator);
++    const auto amount = parseUnsigned(amountField).value_or(0);
++    if (trimmed.endsWith("KiB")) {
++        return amount * 1024;
++    }
++    if (trimmed.endsWith("MiB")) {
++        return amount * 1024 * 1024;
++    }
++    return amount;
++}
++
++std::optional<uint> drmMinor(const QString &path)
++{
++    struct stat status;
++    if (::stat(QFile::encodeName(path).constData(), &status) != 0 || !S_ISCHR(status.st_mode) || major(status.st_rdev) != drmMajor) {
++        return std::nullopt;
++    }
++    return minor(status.st_rdev);
++}
++
++std::optional<DrmClientData> readClientData(const QString &path)
++{
++    QFile file(path);
++    if (!file.open(QIODevice::ReadOnly | QIODevice::Text)) {
++        return std::nullopt;
++    }
++
++    DrmClientData client;
++    while (!file.atEnd()) {
++        const QByteArray line = file.readLine();
++        const qsizetype separator = line.indexOf(':');
++        if (separator < 0) {
++            continue;
++        }
++
++        const QByteArrayView key(line.constData(), separator);
++        const QByteArrayView value(line.constData() + separator + 1, line.size() - separator - 1);
++        const QByteArrayView trimmedKey = key.trimmed();
++        const QByteArrayView trimmedValue = value.trimmed();
++
++        if (trimmedKey == "drm-client-id") {
++            client.id = trimmedValue.toByteArray();
++        } else if (trimmedKey.startsWith("drm-engine-")) {
++            if (const auto amount = parseUnsigned(trimmedValue)) {
++                client.engineTimes[trimmedKey.sliced(sizeof("drm-engine-") - 1).toByteArray()] = *amount;
++            }
++        } else if (trimmedKey.startsWith("drm-resident-") || trimmedKey.startsWith("drm-memory-")) {
++            client.residentMemory += memoryBytes(trimmedValue);
++        }
++    }
++
++    if (client.engineTimes.isEmpty() && client.residentMemory == 0) {
++        return std::nullopt;
++    }
++    return client;
++}
++
++std::optional<quint64> readUnsignedFile(const QString &path)
++{
++    QFile file(path);
++    if (!file.open(QIODevice::ReadOnly | QIODevice::Text)) {
++        return std::nullopt;
++    }
++    return parseUnsigned(file.readAll());
++}
++}
++
++LinuxDrmGpu::LinuxDrmGpu(const QString &id, const QString &name, udev_device *device)
++    : GpuDevice(id, name)
++    , m_device(device)
++{
++    udev_device_ref(m_device);
++}
++
++LinuxDrmGpu::~LinuxDrmGpu()
++{
++    udev_device_unref(m_device);
++}
++
++void LinuxDrmGpu::initialize()
++{
++    GpuDevice::initialize();
++    discoverDrmMinors();
++    discoverDevfreq();
++
++    if (!m_devfreqPath.isEmpty()) {
++        if (const auto maxFrequency = readUnsignedFile(m_devfreqPath + QStringLiteral("/max_freq"))) {
++            m_coreFrequencyProperty->setMax(*maxFrequency / 1000000.0);
++        }
++    }
++    m_sampleTimer.start();
++}
++
++void LinuxDrmGpu::discoverDrmMinors()
++{
++    udev_device *parent = udev_device_get_parent(m_device);
++    if (!parent) {
++        return;
++    }
++
++    udev *context = udev_device_get_udev(m_device);
++    udev_enumerate *enumerate = udev_enumerate_new(context);
++    udev_enumerate_add_match_subsystem(enumerate, "drm");
++    udev_enumerate_add_match_parent(enumerate, parent);
++    udev_enumerate_scan_devices(enumerate);
++
++    for (udev_list_entry *entry = udev_enumerate_get_list_entry(enumerate); entry; entry = udev_list_entry_get_next(entry)) {
++        udev_device *device = udev_device_new_from_syspath(context, udev_list_entry_get_name(entry));
++        if (!device) {
++            continue;
++        }
++        const dev_t deviceNumber = udev_device_get_devnum(device);
++        if (major(deviceNumber) == drmMajor) {
++            m_drmMinors.insert(minor(deviceNumber));
++        }
++        udev_device_unref(device);
++    }
++    udev_enumerate_unref(enumerate);
++}
++
++void LinuxDrmGpu::discoverDevfreq()
++{
++    QStringList candidates;
++    const QDir devfreq(QStringLiteral("/sys/class/devfreq"));
++    for (const QFileInfo &entry : devfreq.entryInfoList(QDir::Dirs | QDir::NoDotAndDotDot)) {
++        QFile nameFile(entry.filePath() + QStringLiteral("/name"));
++        if (!nameFile.open(QIODevice::ReadOnly | QIODevice::Text)) {
++            continue;
++        }
++        const QByteArray name = nameFile.readAll().trimmed().toLower();
++        if (name.contains("gpu") || name.contains("adreno")) {
++            candidates.append(entry.canonicalFilePath());
++        }
++    }
++    if (candidates.size() == 1) {
++        m_devfreqPath = candidates.constFirst();
++    }
++}
++
++void LinuxDrmGpu::update()
++{
++    QHash<QByteArray, quint64> engineTotals;
++    QSet<QByteArray> seenClients;
++    quint64 residentMemory = 0;
++
++    const QDir proc(QStringLiteral("/proc"));
++    const QFileInfoList processes = proc.entryInfoList(QDir::Dirs | QDir::NoDotAndDotDot);
++    for (const QFileInfo &process : processes) {
++        const QString processName = process.fileName();
++        if (!std::ranges::all_of(processName, [](const QChar character) {
++                return character.isDigit();
++            })) {
++            continue;
++        }
++
++        const QDir fdinfo(process.filePath() + QStringLiteral("/fdinfo"));
++        for (const QFileInfo &entry : fdinfo.entryInfoList(QDir::Files)) {
++            const QString fdPath = process.filePath() + QStringLiteral("/fd/") + entry.fileName();
++            const auto deviceMinor = drmMinor(fdPath);
++            if (!deviceMinor || !m_drmMinors.contains(*deviceMinor)) {
++                continue;
++            }
++
++            const auto client = readClientData(entry.filePath());
++            if (!client) {
++                continue;
++            }
++
++            QByteArray clientId = client->id;
++            if (clientId.isEmpty()) {
++                clientId = processName.toUtf8() + ':' + entry.fileName().toUtf8();
++            }
++            if (seenClients.contains(clientId)) {
++                continue;
++            }
++            seenClients.insert(clientId);
++
++            for (auto iterator = client->engineTimes.cbegin(); iterator != client->engineTimes.cend(); ++iterator) {
++                engineTotals[iterator.key()] += iterator.value();
++            }
++            residentMemory += client->residentMemory;
++        }
++    }
++
++    const qint64 elapsedNanoseconds = m_sampleTimer.nsecsElapsed();
++    qreal usage = 0;
++    if (elapsedNanoseconds > 0) {
++        for (auto iterator = engineTotals.cbegin(); iterator != engineTotals.cend(); ++iterator) {
++            if (!m_previousEngineTimes.contains(iterator.key())) {
++                continue;
++            }
++            const quint64 previous = m_previousEngineTimes.value(iterator.key());
++            if (iterator.value() >= previous) {
++                const qreal engineUsage = static_cast<qreal>(iterator.value() - previous) * 100.0 / elapsedNanoseconds;
++                usage = std::max(usage, engineUsage);
++            }
++        }
++    }
++
++    m_usageProperty->setValue(std::clamp(usage, 0.0, 100.0));
++    m_usedVramProperty->setValue(residentMemory);
++    m_previousEngineTimes = std::move(engineTotals);
++    m_sampleTimer.restart();
++
++    if (!m_devfreqPath.isEmpty()) {
++        if (const auto frequency = readUnsignedFile(m_devfreqPath + QStringLiteral("/cur_freq"))) {
++            m_coreFrequencyProperty->setValue(*frequency / 1000000.0);
++        }
++    }
++}
++
++#include "moc_LinuxDrmGpu.cpp"
+diff --git a/plugins/gpu/LinuxDrmGpu.h b/plugins/gpu/LinuxDrmGpu.h
+new file mode 100644
+index 0000000..77d969a
+--- /dev/null
++++ b/plugins/gpu/LinuxDrmGpu.h
+@@ -0,0 +1,37 @@
++/*
++ * SPDX-FileCopyrightText: 2026 Jacobi Lie <jssnlzxcr@gmail.com>
++ *
++ * SPDX-License-Identifier: GPL-2.0-only OR GPL-3.0-only OR LicenseRef-KDE-Accepted-GPL
++ */
++
++#pragma once
++
++#include "GpuDevice.h"
++
++#include <QElapsedTimer>
++#include <QHash>
++#include <QSet>
++
++struct udev_device;
++
++class LinuxDrmGpu : public GpuDevice
++{
++    Q_OBJECT
++
++public:
++    LinuxDrmGpu(const QString &id, const QString &name, udev_device *device);
++    ~LinuxDrmGpu() override;
++
++    void initialize() override;
++    void update() override;
++
++private:
++    void discoverDrmMinors();
++    void discoverDevfreq();
++
++    udev_device *m_device = nullptr;
++    QSet<uint> m_drmMinors;
++    QString m_devfreqPath;
++    QHash<QByteArray, quint64> m_previousEngineTimes;
++    QElapsedTimer m_sampleTimer;
++};

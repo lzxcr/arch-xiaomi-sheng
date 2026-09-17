@@ -1,0 +1,19 @@
+# Maintainer: Jacobi Lie <jssnlzxcr@gmail.com>
+pkgname=xiaomi-sheng-rfsa
+pkgver=3.0.304.0
+pkgrel=1
+pkgdesc="Android RFSA audio, video and camera DSP libraries for Xiaomi Pad 6S Pro 12.4 (sheng)"
+arch=('aarch64')
+url="https://www.mi.com/"
+license=('custom')
+options=('!strip')
+depends=('hexagonrpc')
+source=('files.tar.gz')
+sha256sums=('ad0765f8c15715763db9ed4816e48f26638dd7e3ebe00554a42cc180be6fdfb1')
+
+package() {
+  cp -dr --no-preserve=ownership "${srcdir}/usr" "${pkgdir}/"
+
+  find "${pkgdir}/usr/share/qcom" -type d -exec chmod 755 {} +
+  find "${pkgdir}/usr/share/qcom" -type f -exec chmod 644 {} +
+}

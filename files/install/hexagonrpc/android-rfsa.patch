@@ -1,0 +1,911 @@
+diff --git a/README.md b/README.md
+index 971c2af..869e4de 100644
+--- a/README.md
++++ b/README.md
+@@ -8,6 +8,7 @@ FastRPC ioctl 包装库 + 反向隧道守护进程 + HexagonFS 虚拟文件系
+ 
+ ```
+ ┌─ hexagonrpc      ── 用户库 crate (fastrpc2 / context / remotectl / rpcmem)
++│  └─ hexagonrpc-probe ── 验证 DSP 动态库是否能被真实加载
+ ├─ hexagonrpcd     ── 守护进程 crate (反向隧道 + 接口调度 + HexagonFS)
+ ├─ hexagonrpc-sys  ── 内核 UAPI FFI 绑定 (fastrpc ioctl / dma-heap)
+ └─ sns-registrygen ── 传感器注册表生成工具
+@@ -43,26 +44,31 @@ hexagonrpcd -f /dev/fastrpc-adsp -R /usr/share/qcom/sdm845/SHIFT/axolotl
+ | `-s` | sensorspd 模式 (INIT_ATTACH_SNS) |
+ | `-a NAME` | 创建静态 PD (INIT_CREATE_STATIC)，如 `-a audiopd` |
+ | `-c SHELL` | 创建自定义 PD 加载 ELF |
++| `-u`, `--unsigned` | 将 `-c SHELL` 创建为 unsigned 用户 PD（进程属性 `0x8`） |
+ | `-p PROGRAM` | 启动子客户端 (共享 FD，可重复) |
+ 
++`hexagonrpc-probe` 必须作为 `-p` 子客户端运行。接口名可由
++`HEXAGONRPC_PROBE_INTERFACES`（逗号、分号或空白分隔）传入；守护进程会先注册
++反向文件监听器，再启动子客户端，避免外部 skeleton 加载与监听器启动竞态。
++
+ ### Arch Linux 安装
+ 
+ ```bash
+ makepkg -si
+ ```
+ 
+-`PKGBUILD` 会使用锁定依赖构建、运行工作区测试，并安装两个可执行文件、systemd 单元、udev 规则、sysusers 配置、默认路径映射和 man pages。发布包的 source 锁定 `v0.6.0` 标签，因此在对外发布前需先创建该标签。
++`PKGBUILD` 会使用锁定依赖构建、运行工作区测试，并安装三个可执行文件、systemd 单元、udev 规则、sysusers 配置、默认路径映射和 man pages。发布包的 source 锁定 `v0.6.0` 标签，因此在对外发布前需先创建该标签。
+ 
+ ### 手动部署
+ 
+ ```bash
+-sudo install -Dm0755 target/release/{hexagonrpcd,sns-registrygen} -t /usr/bin/
++sudo install -Dm0755 target/release/{hexagonrpcd,hexagonrpc-probe,sns-registrygen} -t /usr/bin/
+ sudo make -C data PREFIX=/usr install
+ sudo systemd-sysusers
+ sudo udevadm control --reload
+ ```
+ 
+-服务由 udev 在设备节点出现时自动启动（adsp、cdsp、cdsp1、sdsp、gdsp0、gdsp1 各域，含 audiopd/sensorspd 变体）。退出码语义与上游 dsprpcd 对齐：`2` (AEE_ENOMEMORY) 不重启（audiopd 单元），`114` (设备不可达) 在所有单元中不重启，其余错误由 `Restart=on-failure` 处理；`RestartForceExitStatus=SIGTERM` 使外部 SIGTERM 也触发重启，显式 `systemctl stop` 仍会正常停止服务。
++服务由 udev 在设备节点出现时自动启动（adsp、cdsp、cdsp1、sdsp、gdsp0、gdsp1 各域，含 audiopd/sensorspd 变体）。退出码语义与上游 dsprpcd 对齐：`2` (AEE_ENOMEMORY) 不重启（audiopd 单元），`114` (设备不可达) 在所有单元中不重启，其余错误由 `Restart=on-failure` 处理；`RestartForceExitStatus=SIGTERM` 使外部 SIGTERM 也触发重启，显式 `systemctl stop` 仍会正常停止服务。单元还带有 60 秒内最多 3 次的启动限流，防止 DSP 崩溃恢复与 udev 自动启动构成无限环。
+ 
+ ## 接口覆盖
+ 
+@@ -71,7 +77,7 @@ sudo udevadm control --reload
+ | apps_std | 37 | **37/37** ✅（含动态形状的 get_search_paths_with_env） |
+ | apps_mem | 8 | **8/8** ✅ |
+ | remotectl | 2 | **2/2** ✅ |
+-| adsp_listener | 3 | **3/3** ✅（含 get_in_bufs2 大消息续传） |
++| adsp_listener / adsp_listener1 | 3 + 3 | **6/6** ✅（含域感知 ABI 和 get_in_bufs2 大消息续传） |
+ 
+ 线格式与 fastrpc HEAD（QAIC 生成签名）逐字段对齐：方法 31–36 的子分派 prim 布局、NUL 结尾字符串约定、primROut 尺寸协商（DSP 公告 outlens）、`REVERSE_RPC_SCALAR = 0x04020200`。
+ 
+@@ -95,10 +101,13 @@ sudo udevadm control --reload
+ - **HexagonFS 引用链悬垂指针**（失败路径释放了仍被引用的祖先）——Rust `Rc` 使其不可能
+ - **`ftell`/`fgetpos` 恒返回 0**——现返回真实位置
+ - **`getenv` 输出可溢出**——按公告容量截断并保证 NUL 结尾
+-- **`get_search_paths_with_env` 返回空列表**——现在返回真实搜索路径
++- **`get_search_paths_with_env` 返回空列表**——现在返回请求的环境变量以及映射树中真实存在的 Android RFSA、架构限定与每域搜索路径
++- **`-p` 客户端先于反向监听器启动**——外部 skeleton 的首个文件请求可死锁；现在先注册监听器再启动客户端
++- **静态 PD 名称长度未包含 NUL**——内核可接受 ioctl 却创建无效 PD；现在按 Qualcomm ABI 传 `strlen+1`
++- **音频静态 PD 监听协议不完整**——先初始化 listener，支持域感知句柄 7/方法 5–7，并对旧固件的 `ENOSUCHMOD`/`ERPC` 作官方兼容回退
+ - **`fflush` 空 outbufs 解引用**、**`share_map` 本地映射泄漏**、**`apps_mem_request_map64` 截断 64 位 DSP 地址**、**`fopen("w")` 不能创建文件**（现支持 O_CREAT）
+ - **恶意/损坏请求会杀死守护进程**——现在以 `AEE_EBADPARM` 应答并继续
+-- **>256 字节输入 blob 不支持**——通过 `get_in_bufs2` 动态续传
++- **>256 字节输入 blob 不支持**——通过 `get_in_bufs2` 动态续传，并修正其 prim 中重复的长度标量
+ 
+ ## 文档
+ 
+diff --git a/crates/hexagonrpc/Cargo.toml b/crates/hexagonrpc/Cargo.toml
+index ed3717c..562955e 100644
+--- a/crates/hexagonrpc/Cargo.toml
++++ b/crates/hexagonrpc/Cargo.toml
+@@ -9,6 +9,10 @@ repository.workspace = true
+ homepage.workspace = true
+ description = "User-space library for Qualcomm FastRPC (ioctl wrapper, contexts, rpcmem)"
+ 
++[[bin]]
++name = "hexagonrpc-probe"
++path = "src/bin/hexagonrpc-probe.rs"
++
+ [dependencies]
+ hexagonrpc-sys = { workspace = true }
+ libc = { workspace = true }
+diff --git a/crates/hexagonrpcd/src/apps_std.rs b/crates/hexagonrpcd/src/apps_std.rs
+index a09c755..c74d191 100644
+--- a/crates/hexagonrpcd/src/apps_std.rs
++++ b/crates/hexagonrpcd/src/apps_std.rs
+@@ -51,9 +51,7 @@ pub struct AppsStd {
+     avs_cfg_dirfd: Option<usize>,
+     /// Library search directories, most specific first (upstream #328:
+     /// arch path, then per-domain paths; upstream #373: fallback chain).
+-    library_candidates: Vec<usize>,
+-    /// DSP domain name (adsp/cdsp/...), for search-path reporting.
+-    domain: String,
++    library_candidates: Vec<(String, usize)>,
+ }
+ 
+ impl AppsStd {
+@@ -68,7 +66,6 @@ impl AppsStd {
+             rootfd: 0,
+             avs_cfg_dirfd: None,
+             library_candidates: Vec::new(),
+-            domain: domain.to_string(),
+         };
+ 
+         let Ok(rootfd) = ctx.fds.open_root(root) else {
+@@ -84,20 +81,31 @@ impl AppsStd {
+ 
+         // Per-domain library search path, arch-qualified first (upstream
+         // #328: <config>/hexagon/v<arch> takes precedence over the board
+-        // paths; upstream #373: later entries are fallbacks).
++        // paths; upstream #373: later entries are fallbacks). Android's
++        // RFSA mount is named "adsp" even when it contains CDSP skeletons,
++        // so retain that fallback for every domain.
++        let mut paths = Vec::new();
+         if let Some(arch) = query_arch(fd) {
+             crate::log::debug(&format!("DSP arch: {arch}"));
+-            let virt = format!("/usr/lib/qcom/{domain}/{arch}/");
+-            if let Ok(fd) = ctx.fds.openat(rootfd, rootfd as i64, &virt, false) {
+-                ctx.library_candidates.push(fd);
+-            }
++            paths.push(format!("/usr/lib/qcom/{domain}/{arch}/"));
+         }
+-        for virt in [
++        paths.extend([
++            format!("/odm/lib/rfsa/{domain}/"),
++            "/odm/lib/rfsa/adsp/".to_string(),
++            format!("/odm/mount/camera/lib/rfsa/{domain}/"),
++            "/odm/mount/camera/lib/rfsa/adsp/".to_string(),
++            format!("/vendor/lib/rfsa/{domain}/"),
++            "/vendor/lib/rfsa/adsp/".to_string(),
++            format!("/system/lib/rfsa/{domain}/"),
++            format!("/system/vendor/lib/rfsa/{domain}/"),
+             format!("/usr/lib/qcom/{domain}/"),
+             format!("/vendor/dsp/{domain}/"),
+-        ] {
++            format!("/dsp/{domain}/"),
++        ]);
++        paths.dedup();
++        for virt in paths {
+             if let Ok(fd) = ctx.fds.openat(rootfd, rootfd as i64, &virt, false) {
+-                ctx.library_candidates.push(fd);
++                ctx.library_candidates.push((virt, fd));
+             }
+         }
+         ctx
+@@ -121,13 +129,18 @@ impl AppsStd {
+                         .fds
+                         .openat(self.rootfd, self.rootfd as i64, &path, create)
+                     {
++                        crate::log::debug(&format!("library search hit {path}"));
+                         return Ok(fd);
+                     }
+                 }
+             }
+         }
+-        for dirfd in &self.library_candidates {
++        for (path, dirfd) in &self.library_candidates {
+             if let Ok(fd) = self.fds.openat(self.rootfd, *dirfd as i64, name, create) {
++                crate::log::debug(&format!(
++                    "library search hit {}/{name}",
++                    path.trim_end_matches('/')
++                ));
+                 return Ok(fd);
+             }
+         }
+@@ -784,8 +797,8 @@ impl AppsStd {
+         {
+             return Err(aee::code::EBADPARM);
+         }
+-        let _env_var = cstring(inbufs, 1)?;
+-        let _delim = cstring(inbufs, 2)?;
++        let env_var = cstring(inbufs, 1)?;
++        let delim = cstring(inbufs, 2)?;
+ 
+         // Capacities per entry from inbuf[3].
+         let mut caps = Vec::with_capacity(paths_len);
+@@ -793,23 +806,27 @@ impl AppsStd {
+             caps.push(prim_u32(&inbufs[3].data, i) as usize);
+         }
+ 
+-        // Collect the search paths: daemon env first, then the per-domain
+-        // candidates. Like upstream, every directory is reported both
+-        // with its domain subdirectory and bare.
++        // Collect the requested daemon environment first, then only the
++        // candidate directories that actually exist in the mapped tree.
++        // Environment entries are already complete paths on Android (for
++        // example /vendor/lib/rfsa/adsp), so never append the domain twice.
+         let mut paths: Vec<String> = Vec::new();
+-        let mut dirs: Vec<String> = Vec::new();
+-        for var in ["DSP_LIBRARY_PATH", "ADSP_LIBRARY_PATH"] {
+-            if let Ok(value) = std::env::var(var) {
+-                for dir in value.split(';').filter(|d| !d.is_empty()) {
+-                    dirs.push(dir.trim_end_matches('/').to_string());
++        if matches!(env_var, "DSP_LIBRARY_PATH" | "ADSP_LIBRARY_PATH")
++            && let Ok(value) = std::env::var(env_var)
++        {
++            let separator = if delim.is_empty() { ";" } else { delim };
++            for dir in value.split(separator).filter(|dir| !dir.is_empty()) {
++                let path = dir.trim_end_matches('/').to_string();
++                if !paths.contains(&path) {
++                    paths.push(path);
+                 }
+             }
+         }
+-        dirs.push("/usr/lib/qcom".to_string());
+-        dirs.push("/vendor/dsp".to_string());
+-        for dir in dirs {
+-            paths.push(format!("{dir}/{}", self.domain));
+-            paths.push(dir);
++        for (path, _) in &self.library_candidates {
++            let path = path.trim_end_matches('/').to_string();
++            if !paths.contains(&path) {
++                paths.push(path);
++            }
+         }
+ 
+         let mut out = vec![out_buf(out_size(outlens, 0, 6))];
+diff --git a/crates/hexagonrpcd/src/rpcd_builder.rs b/crates/hexagonrpcd/src/rpcd_builder.rs
+index 8634b22..3f55284 100644
+--- a/crates/hexagonrpcd/src/rpcd_builder.rs
++++ b/crates/hexagonrpcd/src/rpcd_builder.rs
+@@ -17,11 +17,15 @@ use crate::hexagonfs::{Dirent, Root};
+ /// Built-in default mappings, used when no `hexagonrpc.json` is present.
+ /// These mirror the standard Android → Linux firmware layout.
+ const DEFAULT_MAPPINGS: &[(&str, &str)] = &[
++    ("/odm", "odm"),
+     ("/vendor/etc", "vendor/etc"),
+     ("/vendor/dsp", "dsp"),
++    ("/vendor/lib/rfsa", "vendor/lib/rfsa"),
+     ("/vendor/firmware", "vendor/firmware"),
++    ("/dsp", "dsp"),
+     ("/usr/lib/qcom", "dsp"),
+     ("/persist", "persist"),
++    ("/mnt/vendor/persist", "persist"),
+     ("/sys/devices/soc0", "socinfo"),
+ ];
+ 
+@@ -139,7 +143,29 @@ mod tests {
+         let cfg = Config::default();
+         let root = construct_root("/tmp/hxr", "adsp", &cfg);
+         let names = names(&root.children);
+-        assert_eq!(names, vec!["vendor", "usr", "persist", "sys"]);
++        assert_eq!(
++            names,
++            vec!["odm", "vendor", "dsp", "usr", "persist", "mnt", "sys"]
++        );
++
++        // Qualcomm sensor firmware reads the output path from
++        // /vendor/etc/sensors/sns_reg_config.  Current Android firmware
++        // uses /mnt/vendor/persist rather than the shorter /persist alias.
++        let mnt = root.children.iter().find(|c| c.name() == "mnt").unwrap();
++        let vendor = match mnt {
++            Dirent::Dir { children, .. } => children.first().unwrap(),
++            _ => panic!("mnt must be a dir"),
++        };
++        match vendor {
++            Dirent::Dir { children, .. } => match children.first().unwrap() {
++                Dirent::Mapped { name, phys } => {
++                    assert_eq!(name, "persist");
++                    assert_eq!(phys, "/tmp/hxr/persist");
++                }
++                _ => panic!("persist must be a mapped leaf"),
++            },
++            _ => panic!("vendor must be a dir"),
++        }
+ 
+         // /usr/lib/qcom is a mapped leaf.
+         let usr = root.children.iter().find(|c| c.name() == "usr").unwrap();
+diff --git a/crates/hexagonrpcd/tests/apps_std.rs b/crates/hexagonrpcd/tests/apps_std.rs
+index 5122d0d..1bef598 100644
+--- a/crates/hexagonrpcd/tests/apps_std.rs
++++ b/crates/hexagonrpcd/tests/apps_std.rs
+@@ -22,12 +22,16 @@ fn setup_tree() -> tempfile::TempDir {
+     std::fs::create_dir_all(root.join("vendor/etc")).unwrap();
+     std::fs::create_dir_all(root.join("persist")).unwrap();
+     std::fs::create_dir_all(root.join("dsp/adsp")).unwrap();
++    std::fs::create_dir_all(root.join("vendor/lib/rfsa/adsp")).unwrap();
+     let mut f = std::fs::File::create(root.join("vendor/etc/test.bin")).unwrap();
+     f.write_all(b"hello_vendor").unwrap();
+     let mut f = std::fs::File::create(root.join("vendor/etc/lines.txt")).unwrap();
+     f.write_all(b"first line\nsecond line\nthird").unwrap();
+     let mut f = std::fs::File::create(root.join("persist/state.dat")).unwrap();
+     f.write_all(b"\x01\x02\x03\x04").unwrap();
++    let mut f =
++        std::fs::File::create(root.join("vendor/lib/rfsa/adsp/libvpp_svc_skel.so")).unwrap();
++    f.write_all(b"VPP_SKEL").unwrap();
+     std::fs::create_dir_all(root.join("persist/subdir")).unwrap();
+     dir
+ }
+@@ -48,6 +52,14 @@ fn make_std(tmp: &tempfile::TempDir) -> AppsStd {
+                 virtual_path: "/usr/lib/qcom".into(),
+                 physical: "dsp".into(),
+             },
++            hexagonrpcd::config::PathMapping {
++                virtual_path: "/vendor/dsp".into(),
++                physical: "dsp".into(),
++            },
++            hexagonrpcd::config::PathMapping {
++                virtual_path: "/vendor/lib/rfsa".into(),
++                physical: "vendor/lib/rfsa".into(),
++            },
+         ],
+     };
+     let root = construct_root(tmp.path().to_str().unwrap(), "adsp", &cfg);
+@@ -294,26 +306,39 @@ fn file_exists_and_search_paths() {
+     // get_search_paths_with_env: dynamic shape.
+     let envvar = cstr("ADSP_LIBRARY_PATH");
+     let delim = cstr(";");
+-    let caps = prim(&[64, 64]);
++    let caps = prim(&[64, 64, 64]);
+     let out = std
+         .invoke(
+             21,
+             &[
+-                prim(&[envvar.data.len() as u32, delim.data.len() as u32, 2]),
++                prim(&[envvar.data.len() as u32, delim.data.len() as u32, 3]),
+                 envvar,
+                 delim,
+                 caps,
+             ],
+-            &[6, 64, 64],
++            &[6, 64, 64, 64],
+         )
+         .unwrap();
+     let num_paths = u32::from_le_bytes(out[0].data[0..4].try_into().unwrap());
+-    assert_eq!(num_paths, 2);
++    assert_eq!(num_paths, 3);
+     let max_len = u16::from_le_bytes(out[0].data[4..6].try_into().unwrap());
+-    // Per-domain dir first, then the bare dir (upstream ordering).
+-    assert_eq!(&out[1].data[..18], b"/usr/lib/qcom/adsp");
+-    assert_eq!(&out[2].data[..13], b"/usr/lib/qcom");
+-    assert!(max_len >= 18);
++    assert_eq!(&out[1].data[..21], b"/vendor/lib/rfsa/adsp");
++    assert_eq!(&out[2].data[..18], b"/usr/lib/qcom/adsp");
++    assert_eq!(&out[3].data[..16], b"/vendor/dsp/adsp");
++    assert!(max_len >= 22);
++}
++
++#[test]
++fn android_rfsa_library_is_in_default_search_chain() {
++    let tmp = setup_tree();
++    let mut std = make_std(&tmp);
++
++    let out = std
++        .invoke(0, &name_mode("libvpp_svc_skel.so", "r"), &[4])
++        .unwrap();
++    let fd = u32::from_le_bytes(out[0].data[0..4].try_into().unwrap());
++    let out = std.invoke(4, &[prim(&[fd, 8])], &[8, 8]).unwrap();
++    assert_eq!(&out[1].data, b"VPP_SKEL");
+ }
+ 
+ #[test]
+diff --git a/crates/hexagonrpcd/tests/vfs_simulation.rs b/crates/hexagonrpcd/tests/vfs_simulation.rs
+index 3bb0c92..7f9b363 100644
+--- a/crates/hexagonrpcd/tests/vfs_simulation.rs
++++ b/crates/hexagonrpcd/tests/vfs_simulation.rs
+@@ -16,7 +16,14 @@ fn setup_tree() -> tempfile::TempDir {
+     let dir = common::tempdir();
+     let root = dir.path();
+ 
+-    for sub in ["vendor/etc", "persist", "socinfo", "dsp/adsp"] {
++    for sub in [
++        "odm/lib/rfsa/adsp",
++        "vendor/etc",
++        "vendor/lib/rfsa/adsp",
++        "persist",
++        "socinfo",
++        "dsp/adsp",
++    ] {
+         std::fs::create_dir_all(root.join(sub)).unwrap();
+     }
+     write_file(root.join("vendor/etc/test.bin"), b"hello_vendor");
+@@ -33,6 +40,10 @@ fn setup_tree() -> tempfile::TempDir {
+     write_file(root.join("vendor/etc/sns_reg.conf"), b"#CFG");
+     write_file(root.join("socinfo/machine"), b"TEST_SOC");
+     write_file(root.join("dsp/adsp/libdomain.so"), b"DOMAIN_LIB");
++    write_file(
++        root.join("vendor/lib/rfsa/adsp/libvpp_svc_skel.so"),
++        b"VPP_SKEL",
++    );
+ 
+     dir
+ }
+@@ -46,6 +57,10 @@ fn test_root(tmp: &tempfile::TempDir) -> Root {
+     let cfg = Config {
+         root_path: tmp.path().to_str().unwrap().to_string(),
+         mappings: vec![
++            hexagonrpcd::config::PathMapping {
++                virtual_path: "/odm".into(),
++                physical: "odm".into(),
++            },
+             hexagonrpcd::config::PathMapping {
+                 virtual_path: "/vendor/etc".into(),
+                 physical: "vendor/etc".into(),
+@@ -54,10 +69,22 @@ fn test_root(tmp: &tempfile::TempDir) -> Root {
+                 virtual_path: "/persist".into(),
+                 physical: "persist".into(),
+             },
++            hexagonrpcd::config::PathMapping {
++                virtual_path: "/mnt/vendor/persist".into(),
++                physical: "persist".into(),
++            },
+             hexagonrpcd::config::PathMapping {
+                 virtual_path: "/usr/lib/qcom".into(),
+                 physical: "dsp".into(),
+             },
++            hexagonrpcd::config::PathMapping {
++                virtual_path: "/dsp".into(),
++                physical: "dsp".into(),
++            },
++            hexagonrpcd::config::PathMapping {
++                virtual_path: "/vendor/lib/rfsa".into(),
++                physical: "vendor/lib/rfsa".into(),
++            },
+             hexagonrpcd::config::PathMapping {
+                 virtual_path: "/sys/devices/soc0".into(),
+                 physical: "socinfo".into(),
+@@ -110,6 +137,20 @@ fn opens_reads_stats_and_seeks() {
+     table.close(fd).unwrap();
+ }
+ 
++#[test]
++fn android_vendor_persist_alias_resolves() {
++    let tmp = setup_tree();
++    let root = test_root(&tmp);
++    let mut table = FdTable::new();
++    let rootfd = table.open_root(&root).unwrap();
++
++    let registry = table
++        .openat(rootfd, -1, "/mnt/vendor/persist/test.reg", false)
++        .unwrap();
++    assert_eq!(read_all(&table, registry, 32), b"REG_1234");
++    table.close(registry).unwrap();
++}
++
+ #[test]
+ fn per_domain_library_paths_resolve_through_host() {
+     let tmp = setup_tree();
+@@ -137,6 +178,26 @@ fn per_domain_library_paths_resolve_through_host() {
+     );
+ }
+ 
++#[test]
++fn android_dsp_and_rfsa_aliases_resolve() {
++    let tmp = setup_tree();
++    let root = test_root(&tmp);
++    let mut table = FdTable::new();
++    let rootfd = table.open_root(&root).unwrap();
++
++    for (path, expected) in [
++        ("/dsp/adsp/libdomain.so", b"DOMAIN_LIB".as_slice()),
++        (
++            "/vendor/lib/rfsa/adsp/libvpp_svc_skel.so",
++            b"VPP_SKEL".as_slice(),
++        ),
++    ] {
++        let fd = table.openat(rootfd, -1, path, false).unwrap();
++        assert_eq!(read_all(&table, fd, 32), expected);
++        table.close(fd).unwrap();
++    }
++}
++
+ #[test]
+ fn directory_listing_and_error_paths() {
+     let tmp = setup_tree();
+@@ -272,7 +333,10 @@ fn virtual_tree_shape_matches_config() {
+     let root = test_root(&tmp);
+     let mut names = Vec::new();
+     collect_names(&root.children, &mut names);
+-    assert_eq!(names, vec!["vendor", "persist", "usr", "sys"]);
++    assert_eq!(
++        names,
++        vec!["odm", "vendor", "persist", "mnt", "usr", "dsp", "sys"]
++    );
+ }
+ 
+ fn collect_names(children: &[Dirent], out: &mut Vec<String>) {
+diff --git a/data/Makefile b/data/Makefile
+index 6bbe612..b36d359 100644
+--- a/data/Makefile
++++ b/data/Makefile
+@@ -43,7 +43,7 @@ install-config:
+ 
+ install-man:
+ 	install -d $(DESTDIR)$(MANDIR)/man8 $(DESTDIR)$(MANDIR)/man3
+-	install -m 0644 $(PROJECT_ROOT)/hexagonrpcd/hexagonrpcd.8 $(DESTDIR)$(MANDIR)/man8/
++	install -m 0644 $(PROJECT_ROOT)/hexagonrpcd/hexagonrpcd.8 $(PROJECT_ROOT)/hexagonrpcd/hexagonrpc-probe.8 $(DESTDIR)$(MANDIR)/man8/
+ 	install -m 0644 $(PROJECT_ROOT)/docs/hexagonrpc.3 $(DESTDIR)$(MANDIR)/man3/
+ 	@for domain in $(DOMAINS); do \
+ 		ln -sf hexagonrpcd.8 $(DESTDIR)$(MANDIR)/man8/hexagonrpcd-$$domain.8; \
+@@ -54,7 +54,7 @@ uninstall:
+ 	rm -f $(DESTDIR)$(UDEV_RULESDIR)/60-hexagonrpc.rules
+ 	rm -f $(DESTDIR)$(SYSUSERSDIR)/hexagonrpc.conf
+ 	rm -f $(DESTDIR)$(QCOM_CONFDIR)/hexagonrpc.json
+-	rm -f $(DESTDIR)$(MANDIR)/man8/hexagonrpcd.8 $(DESTDIR)$(MANDIR)/man3/hexagonrpc.3
++	rm -f $(DESTDIR)$(MANDIR)/man8/hexagonrpcd.8 $(DESTDIR)$(MANDIR)/man8/hexagonrpc-probe.8 $(DESTDIR)$(MANDIR)/man3/hexagonrpc.3
+ 	@for domain in $(DOMAINS); do \
+ 		rm -f $(DESTDIR)$(MANDIR)/man8/hexagonrpcd-$$domain.8; \
+ 	done
+diff --git a/data/hexagonrpc.json b/data/hexagonrpc.json
+index d736f55..ffeaa38 100644
+--- a/data/hexagonrpc.json
++++ b/data/hexagonrpc.json
+@@ -2,8 +2,8 @@
+     "_comment": "Physical paths are subdirectories relative to the -R root.",
+     "path_mappings": [
+         {
+-            "virtual": "/odm/etc",
+-            "physical": "odm/etc"
++            "virtual": "/odm",
++            "physical": "odm"
+         },
+         {
+             "virtual": "/vendor/etc",
+@@ -13,10 +13,18 @@
+             "virtual": "/vendor/dsp",
+             "physical": "dsp"
+         },
++        {
++            "virtual": "/vendor/lib/rfsa",
++            "physical": "vendor/lib/rfsa"
++        },
+         {
+             "virtual": "/vendor/firmware",
+             "physical": "vendor/firmware"
+         },
++        {
++            "virtual": "/dsp",
++            "physical": "dsp"
++        },
+         {
+             "virtual": "/usr/lib/qcom",
+             "physical": "dsp"
+@@ -25,6 +33,10 @@
+             "virtual": "/persist",
+             "physical": "persist"
+         },
++        {
++            "virtual": "/mnt/vendor/persist",
++            "physical": "persist"
++        },
+         {
+             "virtual": "/sys/devices/soc0",
+             "physical": "socinfo"
+diff --git a/docs/ARCHITECTURE.md b/docs/ARCHITECTURE.md
+index dec8374..e648bb8 100644
+--- a/docs/ARCHITECTURE.md
++++ b/docs/ARCHITECTURE.md
+@@ -109,6 +109,7 @@ loop:
+ ├── vendor/firmware/             → {root}/vendor/firmware
+ ├── usr/lib/qcom/                → {root}/dsp
+ ├── persist/                     → {root}/persist
++├── mnt/vendor/persist/          → {root}/persist
+ └── sys/devices/soc0/            → {root}/socinfo
+ ```
+ 
+diff --git a/docs/CONFIGURATION.md b/docs/CONFIGURATION.md
+index c62ab28..be59b5e 100644
+--- a/docs/CONFIGURATION.md
++++ b/docs/CONFIGURATION.md
+@@ -10,7 +10,7 @@ hexagonrpcd 通过 JSON 配置文件定义自定义的虚拟路径 → 物理路
+ {device_dir}/hexagonrpc.json
+ ```
+ 
+-其中 `{device_dir}` 由 `-R` 参数指定或自动检测（见下方）。若该文件不存在或损坏，则回退到 `/usr/share/qcom/conf.d/hexagonrpc.json`；两者都不可用时使用内置默认映射。
++其中 `{device_dir}` 由 `-R` 参数指定或自动检测（见下方）。设备配置不存在时回退到 `/usr/share/qcom/conf.d/hexagonrpc.json`；设备配置存在但损坏时不会静默套用另一台设备可能不兼容的全局映射，而是保留空映射并由内置安全默认值构造目录树。
+ 
+ ### 自动设备目录检测
+ 
+@@ -27,6 +27,10 @@ hexagonrpcd 通过 JSON 配置文件定义自定义的虚拟路径 → 物理路
+ ```json
+ {
+     "path_mappings": [
++        {
++            "virtual": "/odm",
++            "physical": "odm"
++        },
+         {
+             "virtual": "/vendor/etc",
+             "physical": "vendor/etc"
+@@ -35,6 +39,10 @@ hexagonrpcd 通过 JSON 配置文件定义自定义的虚拟路径 → 物理路
+             "virtual": "/vendor/dsp",
+             "physical": "dsp"
+         },
++        {
++            "virtual": "/vendor/lib/rfsa",
++            "physical": "vendor/lib/rfsa"
++        },
+         {
+             "virtual": "/vendor/firmware",
+             "physical": "vendor/firmware"
+@@ -43,6 +51,10 @@ hexagonrpcd 通过 JSON 配置文件定义自定义的虚拟路径 → 物理路
+             "virtual": "/usr/lib/qcom",
+             "physical": "dsp"
+         },
++        {
++            "virtual": "/dsp",
++            "physical": "dsp"
++        },
+         {
+             "virtual": "/persist",
+             "physical": "persist"
+@@ -69,11 +81,15 @@ hexagonrpcd 通过 JSON 配置文件定义自定义的虚拟路径 → 物理路
+ 
+ | 虚拟路径 | 物理路径 |
+ |----------|----------|
++| `/odm` | `{root}/odm/` |
+ | `/vendor/etc` | `{root}/vendor/etc/` |
+ | `/vendor/dsp` | `{root}/dsp/` |
++| `/vendor/lib/rfsa` | `{root}/vendor/lib/rfsa/` |
+ | `/vendor/firmware` | `{root}/vendor/firmware/` |
++| `/dsp` | `{root}/dsp/` |
+ | `/usr/lib/qcom` | `{root}/dsp/` |
+ | `/persist` | `{root}/persist/` |
++| `/mnt/vendor/persist` | `{root}/persist/` |
+ | `/sys/devices/soc0` | `{root}/socinfo/` |
+ 
+ ### 映射语义
+@@ -85,10 +101,14 @@ hexagonrpcd 通过 JSON 配置文件定义自定义的虚拟路径 → 物理路
+ 
+ `fopen`/`fopen_with_env`（`ADSP_LIBRARY_PATH`/`DSP_LIBRARY_PATH`）按以下顺序解析（合并自 fastrpc #328/#373）：
+ 
+-1. 守护进程环境中 `DSP_LIBRARY_PATH`/`ADSP_LIBRARY_PATH`（`;` 分隔的虚拟路径）
++1. DSP 请求的那个守护进程环境变量（`DSP_LIBRARY_PATH` 或 `ADSP_LIBRARY_PATH`，按 DSP 提供的分隔符解析）
+ 2. 架构限定路径 `/usr/lib/qcom/{dsp}/{arch}/`（`arch` 如 `v75`，来自内核 capability ioctl）
+-3. 每域路径 `/usr/lib/qcom/{dsp}/`、`/vendor/dsp/{dsp}/`
+-4. HexagonFS 根目录
++3. Android RFSA 路径：`/odm/lib/rfsa/{dsp|adsp}/`、相机 overlay 源、`/vendor/lib/rfsa/{dsp|adsp}/`
++4. 每域路径 `/usr/lib/qcom/{dsp}/`、`/vendor/dsp/{dsp}/`、`/dsp/{dsp}/`
++5. HexagonFS 根目录
++
++RFSA 目录只有在映射树中确实存在时才返回给 DSP。Android 将包含 CDSP skeleton
++的兼容目录也命名为 `adsp`，因此非 ADSP 域会保留 `.../rfsa/adsp/` 回退。
+ 
+ ## 运行示例
+ 
+@@ -98,18 +118,22 @@ mkdir -p /usr/share/qcom/sm8550/Xiaomi/sheng
+ cat > /usr/share/qcom/sm8550/Xiaomi/sheng/hexagonrpc.json << 'JSON'
+ {
+     "path_mappings": [
++        {"virtual": "/odm", "physical": "odm"},
+         {"virtual": "/vendor/etc", "physical": "vendor/etc"},
+         {"virtual": "/vendor/dsp", "physical": "dsp"},
++        {"virtual": "/vendor/lib/rfsa", "physical": "vendor/lib/rfsa"},
+         {"virtual": "/vendor/firmware", "physical": "vendor/firmware"},
++        {"virtual": "/dsp", "physical": "dsp"},
+         {"virtual": "/usr/lib/qcom", "physical": "dsp"},
+         {"virtual": "/persist", "physical": "persist"},
++        {"virtual": "/mnt/vendor/persist", "physical": "persist"},
+         {"virtual": "/sys/devices/soc0", "physical": "socinfo"}
+     ]
+ }
+ JSON
+ 
+ # 2. 放置 DSP 固件文件（Android 设备上提取）
+-mkdir -p /usr/share/qcom/sm8550/Xiaomi/sheng/{dsp,vendor/etc,persist,socinfo}
++mkdir -p /usr/share/qcom/sm8550/Xiaomi/sheng/{dsp,odm,vendor/etc,vendor/lib/rfsa,persist,socinfo}
+ 
+ # 3. 启动 hexagonrpcd
+ hexagonrpcd -f /dev/fastrpc-adsp -R /usr/share/qcom/sm8550/Xiaomi/sheng
+@@ -130,4 +154,8 @@ hexagonrpcd-gdsp1.service         # GDSP1
+ hexagonrpcd-sdsp.service          # SDSP
+ ```
+ 
+-安装：`sudo make -C data PREFIX=/usr install`（`DESTDIR`/`PREFIX` 可覆盖）。退出码语义：`2`（AEE_ENOMEMORY，audiopd 单元不重启）与 `114`（设备不可达，所有单元）均不重启，其余由 `Restart=on-failure` 处理；`RestartForceExitStatus=SIGTERM` 使外部 SIGTERM 也触发重启，显式 `systemctl stop` 仍会正常停止服务。
++`audiopd` 单元使用静态 PD ABI。hexagonrpcd 会先初始化 DSP 反向 listener，
++再注册它；新固件使用 `adsp_listener1`，返回 `ENOSUCHMOD` 或 `ERPC`
++的固件按 Qualcomm 参考实现回退到旧 `adsp_listener`。
++
++安装：`sudo make -C data PREFIX=/usr install`（`DESTDIR`/`PREFIX` 可覆盖）。退出码语义：`2`（AEE_ENOMEMORY，audiopd 单元不重启）与 `114`（设备不可达，所有单元）均不重启，其余由 `Restart=on-failure` 处理；`RestartForceExitStatus=SIGTERM` 使外部 SIGTERM 也触发重启，显式 `systemctl stop` 仍会正常停止服务。所有单元在 60 秒窗口内最多启动 3 次，避免 DSP 崩溃与 udev 重建设备节点形成无限恢复环。
+diff --git a/docs/QUICKSTART.md b/docs/QUICKSTART.md
+index f1d9e2c..12f39c5 100644
+--- a/docs/QUICKSTART.md
++++ b/docs/QUICKSTART.md
+@@ -18,6 +18,7 @@ cargo build --locked --release --workspace
+ | 文件 | 说明 |
+ |------|------|
+ | `hexagonrpcd` | 反向隧道守护进程 |
++| `hexagonrpc-probe` | 通过共享 FastRPC 会话验证远端接口动态加载 |
+ | `sns-registrygen` | 传感器注册表生成工具 |
+ 
+ 运行全部测试：
+@@ -32,12 +33,12 @@ cargo test --locked --workspace
+ makepkg -si
+ ```
+ 
+-包构建过程会自动运行测试。安装后包含 `hexagonrpcd`、`sns-registrygen`、systemd/udev/sysusers 部署文件、默认路径映射和 man pages。
++包构建过程会自动运行测试。安装后包含 `hexagonrpcd`、`hexagonrpc-probe`、`sns-registrygen`、systemd/udev/sysusers 部署文件、默认路径映射和 man pages。
+ 
+ ### 手动安装
+ 
+ ```bash
+-sudo install -Dm0755 target/release/{hexagonrpcd,sns-registrygen} -t /usr/bin/
++sudo install -Dm0755 target/release/{hexagonrpcd,hexagonrpc-probe,sns-registrygen} -t /usr/bin/
+ sudo make -C data PREFIX=/usr install
+ sudo systemd-sysusers
+ sudo udevadm control --reload
+@@ -89,8 +90,20 @@ systemctl status hexagonrpcd-adsp.service
+ | `-s` | 以 `INIT_ATTACH_SNS` 模式连接（sensorspd） | `-s` |
+ | `-a NAME` | 创建静态 PD（`INIT_CREATE_STATIC`） | `-a audiopd` |
+ | `-c SHELL` | 创建新 PD 并加载指定 ELF | `-c /path/to/shell.elf` |
++| `-u`, `--unsigned` | 与 `-c` 配合创建 unsigned 用户 PD | `-c fastrpc_shell_unsigned_3 -u` |
+ | `-p PROGRAM` | 启动子客户端程序（共享 FD，可重复） | `-p /usr/bin/sensor-app` |
+ 
++`-a` 会按内核 ABI 传入包含结尾 NUL 的 PD 名称。守护进程会在注册默认
++listener 前先调用 `init2`，并自动在 `adsp_listener1` 与旧
++`adsp_listener` ABI 之间按 DSP 返回码切换。
++
++加载探针示例（守护进程持续提供反向文件 I/O；探针结果写入标准输出）：
++
++```bash
++HEXAGONRPC_PROBE_INTERFACES=benchmark \
++  hexagonrpcd -f /dev/fastrpc-cdsp -d cdsp -p /usr/bin/hexagonrpc-probe
++```
++
+ ## HexagonFS 目录准备
+ 
+ hexagonrpcd 为 DSP 提供虚拟文件系统，默认从 `/usr/share/qcom/` 提供文件。
+@@ -100,8 +113,10 @@ hexagonrpcd 为 DSP 提供虚拟文件系统，默认从 `/usr/share/qcom/` 提
+ ```
+ /usr/share/qcom/{soc}/{vendor}/{device}/
+ ├── vendor/etc/            → /vendor/etc
+-├── dsp/{domain}/          → /usr/lib/qcom/{domain}, /vendor/dsp/{domain}
+-├── persist/               → /persist
++├── vendor/lib/rfsa/adsp/  → Android RFSA 动态 skeleton
++├── odm/.../rfsa/adsp/     → OEM/相机 RFSA 动态 skeleton
++├── dsp/{domain}/          → /dsp、/usr/lib/qcom、/vendor/dsp 的每域目录
++├── persist/               → /persist, /mnt/vendor/persist
+ └── socinfo/               → /sys/devices/soc0
+ ```
+ 
+diff --git a/hexagonrpcd/hexagonrpcd.8 b/hexagonrpcd/hexagonrpcd.8
+index 63be8bf..ec6f9af 100644
+--- a/hexagonrpcd/hexagonrpcd.8
++++ b/hexagonrpcd/hexagonrpcd.8
+@@ -24,10 +24,18 @@ FastRPC device node (e.g. /dev/fastrpc-adsp). Required.
+ .TP
+ \fB\-a \fINAME\fP
+ Create a named static PD (INIT_CREATE_STATIC), e.g. \fB\-a audiopd\fP.
++The ABI length includes the trailing NUL. The daemon initializes the reverse
++listener before registration and falls back from the domain-aware listener1
++ABI when the DSP reports ENOSUCHMOD or ERPC.
+ .TP
+ \fB\-c \fIPATH\fP
+ Create a DSP process domain loading the specified ELF binary (INIT_CREATE).
+ .TP
++\fB\-u\fP, \fB\-\-unsigned\fP
++Create the ELF supplied by \fB\-c\fP as an unsigned user PD (process
++attribute 0x8). This must be paired with the domain's
++fastrpc_shell_unsigned_D ELF and is invalid without \fB\-c\fP.
++.TP
+ \fB\-d \fIDSP\fP
+ DSP domain name used for per-domain library search paths (adsp, cdsp,
+ cdsp1, sdsp, gdsp0, gdsp1, mdsp). Default: empty.
+@@ -48,21 +56,27 @@ Show usage.
+ .SH SEARCH PATHS
+ The per-domain DSP library search path used by fopen-family calls
+ consists of, in order: directories from the daemon's
+-DSP_LIBRARY_PATH/ADSP_LIBRARY_PATH environment (if set), the
++requested DSP_LIBRARY_PATH or ADSP_LIBRARY_PATH environment (if set), the
+ architecture-qualified path /usr/lib/qcom/DSP/ARCH/ (ARCH like v75,
+-queried from the kernel capability), /usr/lib/qcom/DSP/,
+-/vendor/dsp/DSP/, and finally the HexagonFS root.
++queried from the kernel capability), existing Android RFSA directories
++below /odm and /vendor, /usr/lib/qcom/DSP/, /vendor/dsp/DSP/,
++/dsp/DSP/, and finally the HexagonFS root.
+ .SH HEXAGONFS PATH MAPPINGS
+ Default DSP path redirections (configurable via hexagonrpc.json):
+ .TS
+ box tab(|);
+ l|l.
+ DSP path|Physical path
++/odm|{root}/odm
+ /vendor/etc|{root}/vendor/etc
+ /vendor/dsp|{root}/dsp
++/vendor/lib/rfsa|{root}/vendor/lib/rfsa
+ /vendor/firmware|{root}/vendor/firmware
++/dsp|{root}/dsp
+ /usr/lib/qcom|{root}/dsp
+ /persist|{root}/persist
++.br
++/mnt/vendor/persist|{root}/persist
+ /sys/devices/soc0|{root}/socinfo
+ .TE
+ .SH EXIT STATUS
+diff --git a/crates/hexagonrpc/src/bin/hexagonrpc-probe.rs b/crates/hexagonrpc/src/bin/hexagonrpc-probe.rs
+new file mode 100644
+index 0000000..e223dc1
+--- /dev/null
++++ b/crates/hexagonrpc/src/bin/hexagonrpc-probe.rs
+@@ -0,0 +1,60 @@
++//! One-shot remote loader probe for a FastRPC session shared by hexagonrpcd.
++//!
++//! SPDX-License-Identifier: GPL-3.0-or-later
++
++use std::process::ExitCode;
++
++use hexagonrpc::{hexagonrpc_fd_from_env, remotectl_close, remotectl_open};
++
++const EXIT_USAGE: u8 = 2;
++const EXIT_LOAD_FAILED: u8 = 1;
++
++fn interface_names() -> Vec<String> {
++    let mut names: Vec<String> = std::env::args().skip(1).collect();
++    if names.is_empty()
++        && let Ok(value) = std::env::var("HEXAGONRPC_PROBE_INTERFACES")
++    {
++        names.extend(
++            value
++                .split([',', ';', ' ', '\t', '\n'])
++                .filter(|name| !name.is_empty())
++                .map(str::to_string),
++        );
++    }
++    names
++}
++
++fn main() -> ExitCode {
++    let Some(fd) = hexagonrpc_fd_from_env() else {
++        eprintln!("hexagonrpc-probe: HEXAGONRPC_FD is missing or invalid");
++        return ExitCode::from(EXIT_USAGE);
++    };
++    let names = interface_names();
++    if names.is_empty() {
++        eprintln!(
++            "hexagonrpc-probe: pass an interface name or set \
++             HEXAGONRPC_PROBE_INTERFACES"
++        );
++        return ExitCode::from(EXIT_USAGE);
++    }
++
++    for name in names {
++        let context = match remotectl_open(fd, &name) {
++            Ok(context) => context,
++            Err(error) => {
++                eprintln!("hexagonrpc-probe: LOAD FAILED {name}: {error}");
++                return ExitCode::from(EXIT_LOAD_FAILED);
++            }
++        };
++        println!(
++            "hexagonrpc-probe: LOAD OK {name} (handle={})",
++            context.handle
++        );
++        if let Err(error) = remotectl_close(&context) {
++            eprintln!("hexagonrpc-probe: CLOSE FAILED {name}: {error}");
++            return ExitCode::from(EXIT_LOAD_FAILED);
++        }
++    }
++
++    ExitCode::SUCCESS
++}
+diff --git a/hexagonrpcd/hexagonrpc-probe.8 b/hexagonrpcd/hexagonrpc-probe.8
+new file mode 100644
+index 0000000..92bcd28
+--- /dev/null
++++ b/hexagonrpcd/hexagonrpc-probe.8
+@@ -0,0 +1,49 @@
++'\" t
++.TH HEXAGONRPC-PROBE 8 "2026-08" "hexagonrpc v0.6.0" "System Manager's Manual"
++.SH NAME
++hexagonrpc-probe \- verify that a Qualcomm DSP interface can be loaded
++.SH SYNOPSIS
++.B hexagonrpc-probe
++.RI [ interface ... ]
++.SH DESCRIPTION
++hexagonrpc-probe opens and closes each named DSP interface through remotectl.
++It must be launched by
++.BR hexagonrpcd (8)
++with
++.B \-p
++so it inherits the attached FastRPC file descriptor. If no command-line names
++are provided, the comma, semicolon, or whitespace separated value of
++.B HEXAGONRPC_PROBE_INTERFACES
++is used.
++.PP
++A successful open prints
++.B LOAD OK
++with the remote handle. Loader, invocation, and close failures print
++.B FAILED
++and return a non-zero status.
++.SH ENVIRONMENT
++.TP
++.B HEXAGONRPC_FD
++Inherited FastRPC file descriptor. Set by hexagonrpcd.
++.TP
++.B HEXAGONRPC_PROBE_INTERFACES
++Interfaces to probe when no positional argument is present.
++.SH EXIT STATUS
++.TP
++0
++Every interface loaded and closed successfully.
++.TP
++1
++Remote load or close failed.
++.TP
++2
++No valid inherited descriptor or no interface name was provided.
++.SH EXAMPLE
++.nf
++HEXAGONRPC_PROBE_INTERFACES=benchmark \
++  hexagonrpcd -f /dev/fastrpc-cdsp -d cdsp \
++  -p /usr/bin/hexagonrpc-probe
++.fi
++.SH SEE ALSO
++.BR hexagonrpcd (8),
++.BR hexagonrpc (3)

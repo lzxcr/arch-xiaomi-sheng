@@ -6,13 +6,17 @@ SHELL := /bin/bash
 
 .DEFAULT_GOAL := help
 
-.PHONY: all check files build repo rootfs clean help
+.PHONY: all check audit-device files build repo rootfs clean help
 
 all: build repo rootfs
 
 # 快速、只读的仓库一致性检查
 check:
 	@bash scripts/check.sh
+
+# 只读检查当前 sheng 的 UFS/GPT、A/B 槽与启动交接方式
+audit-device:
+	@bash scripts/audit-device-layout.sh
 
 # 将 files/ 中本地维护的文件打成可复现归档
 files:
@@ -40,8 +44,9 @@ help:
 	@echo "可用目标:"
 	@echo "  all      完整流程：build → repo → rootfs"
 	@echo "  check    检查脚本、包清单和 PKGBUILD 元数据"
+	@echo "  audit-device  只读审计当前设备的 UFS/GPT、A/B 槽与启动模式"
 	@echo "  files    生成本地 files.tar.gz 归档"
-	@echo "  build    在 clean chroot 中按阶段构建全部 15 个包"
+	@echo "  build    在 clean chroot 中按阶段构建全部 16 个包"
 	@echo "  repo     将 out/pkgs/ 注册为本地 pacman 仓库"
 	@echo "  rootfs   组装可刷写的 rootfs.img 与 boot.img"
 	@echo "  clean    清理构建产物（--keep-cache 保留源码缓存）"

@@ -67,7 +67,7 @@ upstream source ───────────────► PKGBUILD
 ```text
 Stage 0  hexagonrpc  libssc  linux-firmware-sheng  linux-xiaomi-sheng
 Stage 1  iio-sensor-proxy
-Stage 2  xiaomi-sheng-sensors
+Stage 2  xiaomi-sheng-rfsa  xiaomi-sheng-sensors
 Stage 3  其余设备集成包
 ```
 
@@ -75,7 +75,7 @@ Stage 3  其余设备集成包
 
 ```text
 hexagonrpc ──────────────────────────► xiaomi-sheng-sensors
-   └────────────────────────────────► xiaomi-sheng-keyboard-helper
+   └────────────────────────────────► xiaomi-sheng-rfsa
 libssc ─────► iio-sensor-proxy ─────► xiaomi-sheng-sensors
    └────────────────────────────────► xiaomi-sheng-thp
 ```
@@ -97,15 +97,15 @@ rootfs 不复制该路径，而是在镜像内生成 `file:///opt/sheng-repo` �
 1. 创建稀疏 ext4 镜像并 loop mount；
 2. pacstrap 基础用户态，不安装通用 `linux-aarch64`/`linux-firmware`；
 3. 把 `out/repo` 复制到镜像 `/opt/sheng-repo`；
-4. 在 chroot 内一次安装清单中的 15 个设备包；
+4. 在 chroot 内一次安装清单中的 16 个设备包；
 5. 安装可选桌面和额外包，配置 locale、用户、网络；
 6. 创建 `/boot/loader/entries/arch.conf`；
-7. 以 `BOOTFLASH_NO_FLASH=1` 生成 initramfs 和 boot.img；
+7. 生成 initramfs 和 boot.img；mkinitcpio post hook 在结构上只负责构建；
 8. 导出 boot.img、卸载并用 e2fsck 验证 rootfs。
 
 包事务期间将 `MKINITCPIO_POST_HOOKS` 指向空位置，避免尚未生成 boot entry 时执行
-post hook，也避免构建机 `/dev/disk/by-partlabel/boot_*` 被误写。最后一次
-mkinitcpio 显式进入“只构建、不刷写”模式。
+post hook。最后一次 mkinitcpio 只生成镜像；裸分区写入只存在于必须人工调用、单槽、
+先备份后校验的 `sheng-boot-slot` 中。
 
 ## 4. 运行时机理
 
@@ -116,7 +116,9 @@ Linux fastrpc driver
        │ 创建 /dev/fastrpc-adsp
        ▼
 60-hexagonrpc.rules
-       │ SYSTEMD_WANTS
+       │ 只设置 owner/group/mode
+       │
+       │ 管理员或明确的消费者按需启动
        ▼
 hexagonrpcd-adsp-sensorspd.service
        │ reverse RPC / HexagonFS
@@ -139,18 +141,54 @@ hexagonrpcd-adsp-sensorspd.service
 HexagonRPC 0.6.0 使用 Rust workspace：`hexagonrpc-sys` 提供内核 UAPI，
 `hexagonrpc` 实现用户态 FastRPC，`hexagonrpcd` 提供反向隧道和 HexagonFS，
 `sns-registrygen` 生成传感器注册表。包内 systemd 服务以非特权 `hexagonrpc` 用户
-运行，udev 同时设置 FastRPC 与 DMA heap 权限。
+运行，udev 设置 FastRPC 与 DMA heap 权限，但不通过 `SYSTEMD_WANTS` 启动服务。
+这条链路是可选的 Android 传感器兼容层，不属于内核设备初始化。
 
-### 4.2 其他设备集成
+ADSP 的 FastRPC rpmsg 节点通过 DTB `memory-region` 绑定 16 MiB、4 MiB
+对齐且位于 4 GiB 以下的可复用 `shared-dma-pool`。它只服务于明确启动的 FastRPC
+remote heap，避免较大连续分配从已碎片化的通用 DMA zone 中直接回收/compact；
+它不是 ALSA/ASoC 音频修复。任何静态 PD 都必须在确认内核日志显示 FastRPC 已获得
+专用 reserved DMA memory 后再单独验证。
+
+### 4.2 主线音频链路
+
+```text
+qcom_q6v5_pas/remoteproc ──► 签名 ADSP firmware
+                                    │ GLink channel: adsp_apps
+                                    ▼
+                              GPR ──► Q6APM/APM
+                                    │
+                  PCM/DAI graph ◄───┴───► LPASS/SoundWire
+                         │                      │
+                         ▼                      ▼
+                    ALSA/ASoC card      WCD938x + CS35L43
+                         │
+                         ▼
+                       UCM2
+```
+
+GPR 是 AP 与 QDSP 音频/语音服务的内核 IPC；Q6APM 作为 GPR service 提供 DSP
+audio ports。声卡枚举不调用 FastRPC，也不需要 `hexagonrpcd-adsp-audiopd`。
+Android 提取的 `adsp.mbn`、codec DSP 固件及必要校准仍可作为外部 firmware 使用，
+但固件来源和内核控制路径必须分层。RFSA `.so` 仅在实际 DSP graph/算法请求外部库且
+受控测试证明需要时，才通过手动 FastRPC listener 提供。
+
+### 4.3 其他设备集成
 
 | 子系统 | 接入方式 |
 |---|---|
-| 音频 | ALSA UCM2 配置选择 sheng codec/route |
+| 音频 | remoteproc + GPR/Q6APM + LPASS/SoundWire + ASoC；UCM2 只选择用户态 route |
 | 触控与笔 | `xiaomi-sheng-thp` 读取内核 proc 接口，并使用 libssc 姿态数据 |
-| 键盘 | devauth 通过 QTEE 认证；helper 消费 sensors PD 的折叠角数据 |
+| 键盘 | devauth 通过 QTEE 认证；helper 直接读取内核 `nanosic_hinge` ABI |
 | 指纹 | 私有 libfprint backend + qteesupplicant + fprintd drop-in |
 | 充电 | power_supply/typec udev 事件触发 MiPPS；charger mode 由 cmdline 条件启动 |
 | 启动 | mkinitcpio 生成 initramfs，post hook 组合 kernel/initramfs/DTB 为 boot.img |
+
+### 4.4 启动固件边界
+
+Linux 的近期目标是从 ABL 直接加载 `boot.img + DTB` 迁移到 `Mu UEFI + 完整 DTB`。
+面向 Windows 的 `UEFI + ACPI` 是独立硬件描述路径，不能用不完整 DSDT 替代 Linux DT。
+详细的槽位保护、内存图验证和分区约束见 `docs/BOOT-UEFI.md`。
 
 ## 5. HexagonRPC 更新策略
 
@@ -161,8 +199,9 @@ Rust/Cargo，并将部署服务从旧 `adsprpcd_*` 命名迁移为 `hexagonrpcd-
 
 - 源码锁定完整 commit；版本标记为 `0.6.0.r241.gdb659bd`；
 - 使用 `Cargo.lock`，`cargo fetch --locked` 后以 `--frozen` 构建和测试；
-- 安装 `hexagonrpcd`、`sns-registrygen`、udev/sysusers/systemd/man/docs；
-- 键盘 helper 依赖改为 `hexagonrpcd-adsp-sensorspd.service`；
+- 安装 `hexagonrpcd`、`hexagonrpc-probe`、`sns-registrygen`、udev/sysusers/systemd/man/docs；
+- udev 只设置权限，不自动启动 ADSP/CDSP listener；
+- 键盘 helper 不依赖 HexagonRPC，直接使用内核 `nanosic_hinge` ABI；
 - 不保留已由上游提供的本地 HexagonRPC service override。
 
 上游仓库当前没有 `v0.6.0` tag，因此不能直接采用其引用该 tag 的示例 PKGBUILD。
@@ -175,7 +214,7 @@ Rust/Cargo，并将部署服务从旧 `adsprpcd_*` 命名迁移为 `hexagonrpcd-
 - 对脚本执行 `bash -n`；安装了 shellcheck 时进一步静态检查；
 - 比较包清单、构建阶段和实际 PKGBUILD 目录；
 - 检查本地文件包确实引用 `files.tar.gz`；
-- 用 `makepkg --printsrcinfo` 验证 15 个 PKGBUILD 元数据。
+- 用 `makepkg --printsrcinfo` 验证 16 个 PKGBUILD 元数据。
 
 完整验证分层进行：
 

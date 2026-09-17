@@ -3,7 +3,7 @@
 面向 **Xiaomi Pad 6S Pro 12.4（SM8550-AB，代号 sheng）** 的 Arch Linux ARM
 硬件支持包集合与镜像构建系统。
 
-仓库把上游源码、Debian 设备包和本地设备文件适配为 15 个标准 PKGBUILD，经过
+仓库把上游源码、Debian 设备包和本地设备文件适配为 16 个标准 PKGBUILD，经过
 clean chroot 构建后生成本地 pacman 仓库，并可进一步组装 `rootfs.img` 与
 Android `boot.img`。
 
@@ -26,11 +26,15 @@ files/{direct,install} ──► files.tar.gz ─┐
                                          rootfs.img + boot.img
 ```
 
-运行时的传感器主链路是：内核 FastRPC 设备节点触发 udev，udev 启动
+传感器兼容链路需要时由管理员显式启动
 `hexagonrpcd-adsp-sensorspd.service`；`hexagonrpcd` 将 Android 固件路径映射到
 `/usr/share/qcom/...`，`libssc` 与 `iio-sensor-proxy` 再把 SSC 传感器暴露到
-D-Bus。键盘折叠角服务依赖同一个 sensors PD。音频、触控、充电、指纹等功能由
-各自的软件包、udev 规则和 systemd 单元接入。
+D-Bus。FastRPC 设备节点的出现只设置访问权限，不会自动附着任何静态 PD。
+
+音频走独立的内核链路：remoteproc 加载 ADSP 固件，GLink/GPR 暴露 APM，Q6APM、
+LPASS、SoundWire 与 ASoC 声卡/codec 驱动完成绑定，UCM2 只在 ALSA 声卡存在后
+选择路由。它不依赖 `hexagonrpcd-adsp-audiopd.service`。键盘折叠角 helper 直接
+读取内核 `/dev/nanosic_hinge`，同样不依赖 SSC/FastRPC。
 
 更完整的构建与运行时说明见 [设计文档](docs/DESIGN.md)，本地文件来源见
 [设备文件说明](docs/FILES.md)。
@@ -43,6 +47,7 @@ D-Bus。键盘折叠角服务依赖同一个 sensors PD。音频、触控、充�
 | `libssc` | Qualcomm Sensor Core 用户态库 | [DylanVanAssche/libssc](https://codeberg.org/DylanVanAssche/libssc) |
 | `iio-sensor-proxy` | IIO/SSC 到 D-Bus 的传感器代理 | [hadess/iio-sensor-proxy](https://gitlab.freedesktop.org/hadess/iio-sensor-proxy) |
 | `xiaomi-sheng-sensors` | sheng 传感器配置、注册表与 udev 规则 | 本地设备文件 |
+| `xiaomi-sheng-rfsa` | 可选的 Android Hexagon RFSA 音频、视频与相机库 | 官方 Android 镜像 |
 | `alsa-ucm-xiaomi-sheng` | ALSA UCM2 音频配置 | 本地设备文件 |
 | `linux-xiaomi-sheng` | 预编译主线内核、模块和 DTB | [ianchb/sm8550-mainline](https://github.com/ianchb/sm8550-mainline) |
 | `linux-firmware-sheng` | sheng 专用固件 | [ianchb/sheng-firmware](https://github.com/ianchb/sheng-firmware) |
@@ -62,8 +67,9 @@ D-Bus。键盘折叠角服务依赖同一个 sensors PD。音频、触控、充�
 `sns-registrygen`。配方锁定完整提交哈希与 `Cargo.lock`，构建时运行工作区测试。
 
 旧的 `adsprpcd_sensorspd.service` 已由
-`hexagonrpcd-adsp-sensorspd.service` 取代。FastRPC 服务由包内 udev 规则按设备
-节点自动启动，无需手动 enable。
+`hexagonrpcd-adsp-sensorspd.service` 取代。所有 ADSP/CDSP FastRPC listener 都是
+按需手动服务；udev 只设置设备节点权限。这样 remoteproc 错误恢复不会经由设备节点
+重建再次拉起故障静态 PD，也不会把可选 Android 兼容层混入主线 ASoC 音频启动链。
 
 ## 构建
 
@@ -92,7 +98,7 @@ make all
 
 ```bash
 make files    # 生成确定性的 files.tar.gz
-make build    # clean chroot 构建 15 个包
+make build    # clean chroot 构建 16 个包
 make repo     # 原子生成 out/repo
 make rootfs   # 生成 rootfs.img 和 boot.img
 ```
@@ -142,8 +148,8 @@ make rootfs ROOTFS_ARGS='--desktop kde --size 8192'
 | `ROOTFS_KERNEL_CMDLINE` | `root=PARTLABEL=root rw rootwait` | boot.img 内核命令行 |
 
 rootfs 构建会把仓库复制到镜像内的 `/opt/sheng-repo`，不会写入仅宿主可见的
-`file://` 路径。它也不会先安装会与设备内核冲突的 `linux-aarch64`。生成
-initramfs 时设置 `BOOTFLASH_NO_FLASH=1`，确保构建宿主的分区不会被刷新。
+`file://` 路径。它也不会先安装会与设备内核冲突的 `linux-aarch64`。mkinitcpio
+post hook 只生成 boot.img，本身没有任何分区写入代码。
 
 ## 安装后的服务
 
@@ -173,21 +179,27 @@ out/rootfs/rootfs.img
 out/rootfs/boot.img
 ```
 
-示例假定根分区为 `root`、使用 slot B：
+外部 fastboot 刷写前必须先查询活动槽，并只选择非活动槽：
 
 ```bash
 fastboot flash root out/rootfs/rootfs.img
-fastboot flash boot_b out/rootfs/boot.img
+fastboot getvar current-slot
+fastboot flash boot_a out/rootfs/boot.img  # 仅当 A 已确认为非活动试验槽
 fastboot reboot
 ```
 
 `mkinitcpio-bootflash` 在已安装设备上会读取
-`/boot/loader/entries/arch.conf`，生成 `/boot/boot.img`，并在检测到
-`boot_a`/`boot_b` 分区时写入两槽。设置 `BOOTFLASH_NO_FLASH=1` 可只生成镜像：
+`/boot/loader/entries/arch.conf` 并原子生成 `/boot/boot.img`。post hook 不包含
+分区写入能力；安装必须通过独立工具显式指定一个槽：
 
 ```bash
-sudo BOOTFLASH_NO_FLASH=1 mkinitcpio -p linux-xiaomi-sheng
+sudo mkinitcpio -p linux-xiaomi-sheng
+sudo sheng-boot-slot status
+sudo sheng-boot-slot install --slot a --image /boot/boot.img
 ```
+
+工具默认拒绝活动槽，先做整分区备份，写入后再校验，而且从不同时写 A/B。UEFI、
+ACPI、音频差异和分区策略详见 [`docs/BOOT-UEFI.md`](docs/BOOT-UEFI.md)。
 
 ## 维护
 

@@ -1,0 +1,33 @@
+/dts-v1/;
+/plugin/;
+
+/*
+ * FastRPC static PDs need a physically contiguous remote heap.  Without a
+ * memory-region the rpmsg device falls back to dma_alloc_coherent() from the
+ * 32-bit DMA zone; audiopd's 3 MiB request then becomes a costly order-10
+ * allocation.  This follows the upstream sdm845 FastRPC pool: reserve a
+ * reusable 16 MiB pool below 4 GiB, aligned for the largest allocation.
+ */
+/ {
+	fragment@0 {
+		target-path = "/reserved-memory";
+
+		__overlay__ {
+			fastrpc_mem: fastrpc {
+				compatible = "shared-dma-pool";
+				alloc-ranges = <0x0 0x00000000 0x0 0xffffffff>;
+				alignment = <0x0 0x400000>;
+				size = <0x0 0x1000000>;
+				reusable;
+			};
+		};
+	};
+
+	fragment@1 {
+		target-path = "/soc@0/remoteproc@6800000/glink-edge/fastrpc";
+
+		__overlay__ {
+			memory-region = <&fastrpc_mem>;
+		};
+	};
+};

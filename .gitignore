@@ -13,6 +13,7 @@ files.tar.gz
 
 # 下载的远程源码包（非本地维护的源文件）
 pkgs/*/*.tar.gz
+pkgs/*/*.tar.xz
 pkgs/*/*.deb
 pkgs/*/*.deb.part
 

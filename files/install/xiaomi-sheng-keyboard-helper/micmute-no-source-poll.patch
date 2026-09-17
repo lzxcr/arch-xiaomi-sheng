@@ -1,0 +1,39 @@
+diff --git a/src/micmute.c b/src/micmute.c
+index 0b56b6b..8baf397 100644
+--- a/src/micmute.c
++++ b/src/micmute.c
+@@ -26,6 +26,7 @@ struct micmute_state {
+ 	bool query_again;
+ 	bool mute_known;
+ 	bool muted;
++	bool query_failure_reported;
+ 	bool stopping;
+ 	int exit_status;
+ };
+@@ -124,11 +125,23 @@ static void mute_query_done(GObject *object, GAsyncResult *result,
+ 	state->query_pending = false;
+ 	g_clear_object(&state->query);
+ 	if (!completed || !g_subprocess_get_successful(query)) {
+-		g_printerr("failed to query default microphone mute state: %s\n",
+-			   error ? error->message : "pactl failed");
+-		schedule_mute_query_retry(state);
++		if (!state->query_failure_reported) {
++			g_printerr("default microphone is unavailable: %s\n",
++				   error ? error->message : "pactl failed");
++			state->query_failure_reported = true;
++		}
++
++		/*
++		 * No default source is a normal state while the audio card or
++		 * PipeWire is unavailable.  Leave the LED off and wait for the
++		 * existing PulseAudio subscription to report a source/server
++		 * change instead of polling every two seconds forever.
++		 */
++		state->mute_known = false;
++		set_micmute_led(false);
+ 		goto out;
+ 	}
++	state->query_failure_reported = false;
+ 
+ 	if (g_str_has_prefix(stdout_buf, "Mute: yes"))
+ 		muted = true;

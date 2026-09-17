@@ -38,7 +38,11 @@ for pkgdir in "$PKG_DIR"/*/; do
 
   # 下载的远程源码缓存（默认删除；--keep-cache 时保留）
   if ((KEEP_CACHE == 0)); then
-    rm -f "$pkgdir"*.tar.gz "$pkgdir"*.deb "$pkgdir"*.deb.part
+    rm -f \
+      "$pkgdir"*.tar.gz \
+      "$pkgdir"*.tar.xz \
+      "$pkgdir"*.deb \
+      "$pkgdir"*.deb.part
     rm -rf \
       "$pkgdir/hexagonrpc" \
       "$pkgdir/sheng-firmware" \

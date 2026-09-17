@@ -26,7 +26,7 @@ makedepends=(
 source=("${pkgname}-${pkgver}.tar.gz::${url}/archive/refs/tags/v${pkgver}.tar.gz"
         "files.tar.gz")
 sha256sums=('b9a2d6323f598265f1cf16008b55232680caabb654b72976decb5ceed35c7337'
-            'SKIP')
+            '0b9137bb71be1dcbeaecde251a6d02a74b6fa3ae805318588ad893b90bbec62a')
 
 build() {
   cd "${pkgname}-${pkgver}"

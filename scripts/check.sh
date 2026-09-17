@@ -23,6 +23,8 @@ check_shell_syntax() {
     {
       find "$SCRIPTS_DIR" -type f -name '*.sh' -print
       printf '%s\n' "$PROJECT_DIR/files/install/mkinitcpio-bootflash/bootflash"
+      printf '%s\n' "$PROJECT_DIR/files/install/mkinitcpio-bootflash/sheng-fdt-identities"
+      printf '%s\n' "$PROJECT_DIR/files/install/mkinitcpio-bootflash/sheng-boot-slot"
     } | sort -u
   )
 

@@ -1,0 +1,174 @@
+#!/usr/bin/env bash
+# Inject per-device Wi-Fi and Bluetooth identities into a sheng DTB.
+
+set -euo pipefail
+
+readonly DEFAULT_PERSIST="/dev/disk/by-partlabel/persist"
+readonly WLAN_SOURCE="/kiwi_v2/wlan_mac.bin"
+readonly BT_SOURCE="/bluetooth/.bt_nv.bin"
+readonly WLAN_NODE="/soc@0/pcie@1c00000/pcie@0/wifi@0"
+readonly BT_NODE="/soc@0/geniqup@8c0000/serial@898000/bluetooth"
+
+TEMP_DIR=""
+STAGED_DTB=""
+
+die() {
+    printf 'sheng-fdt-identities: %s\n' "$*" >&2
+    exit 1
+}
+
+cleanup() {
+    [[ -z "$TEMP_DIR" ]] || rm -rf -- "$TEMP_DIR"
+    [[ -z "$STAGED_DTB" ]] || rm -f -- "$STAGED_DTB"
+}
+trap cleanup EXIT
+
+usage() {
+    cat <<'EOF'
+Usage: sheng-fdt-identities [--persist BLOCK_DEVICE] INPUT_DTB OUTPUT_DTB
+
+The input DTB is never modified. If persist is unavailable, the output remains
+generic and any stale address properties are removed. Factory addresses are
+never printed or stored outside OUTPUT_DTB.
+EOF
+}
+
+valid_unicast_mac() {
+    local compact="${1,,}"
+    local first_octet
+
+    [[ "$compact" =~ ^[0-9a-f]{12}$ ]] || return 1
+    [[ "$compact" != 000000000000 && "$compact" != ffffffffffff ]] || return 1
+    first_octet=$((16#${compact:0:2}))
+    (( (first_octet & 1) == 0 ))
+}
+
+verify_property() {
+    local dtb="$1" node="$2" property="$3"
+    shift 3
+    local -a expected=("$@") actual=()
+    local index
+
+    read -r -a actual <<< "$(fdtget -t bx "$dtb" "$node" "$property")"
+    ((${#actual[@]} == ${#expected[@]})) || return 1
+    for index in "${!expected[@]}"; do
+        ((16#${actual[$index]} == 16#${expected[$index]})) || return 1
+    done
+}
+
+publish_dtb() {
+    local target="$1"
+
+    chmod 0644 "$STAGED_DTB"
+    mv -f -- "$STAGED_DTB" "$target"
+    STAGED_DTB=""
+}
+
+main() {
+    local persist="$DEFAULT_PERSIST" input="" output=""
+    local input_real output_parent output_name output_real
+    local wlan_file bt_file wlan_line wlan_compact bt_compact
+    local -a wlan_bytes=() bt_bytes=() bt_fdt_bytes=()
+    local index
+
+    while (($# > 0)); do
+        case "$1" in
+            --persist)
+                (($# >= 2)) || die "--persist requires a block device"
+                persist="$2"
+                shift 2
+                ;;
+            -h|--help)
+                usage
+                return
+                ;;
+            --)
+                shift
+                break
+                ;;
+            -*) die "unknown option: $1" ;;
+            *) break ;;
+        esac
+    done
+
+    (($# == 2)) || die "expected INPUT_DTB and OUTPUT_DTB"
+    input="$1"
+    output="$2"
+
+    input_real="$(realpath -e -- "$input")" || die "input DTB not found: $input"
+    [[ -f "$input_real" ]] || die "input is not a regular file: $input_real"
+    output_parent="$(realpath -e -- "$(dirname -- "$output")")" || \
+        die "output directory not found: $(dirname -- "$output")"
+    output_name="$(basename -- "$output")"
+    output_real="$output_parent/$output_name"
+    [[ "$input_real" != "$output_real" ]] || die "input and output must differ"
+
+    fdtget -t s "$input_real" "$WLAN_NODE" compatible >/dev/null || \
+        die "Wi-Fi node not found in input DTB"
+    fdtget -t s "$input_real" "$BT_NODE" compatible >/dev/null || \
+        die "Bluetooth node not found in input DTB"
+
+    # Repack with a small reserve so adding a new property never depends on
+    # accidental free space in the input blob.
+    STAGED_DTB="$(mktemp "$output_parent/.${output_name}.XXXXXX")"
+    dtc -q -I dtb -O dtb -p 1024 -o "$STAGED_DTB" "$input_real"
+
+    # Never propagate the source tree's historical shared Bluetooth address.
+    fdtput -d "$STAGED_DTB" "$WLAN_NODE" local-mac-address 2>/dev/null || true
+    fdtput -d "$STAGED_DTB" "$BT_NODE" local-bd-address 2>/dev/null || true
+
+    if [[ -L "$persist" ]]; then
+        persist="$(readlink -f -- "$persist")"
+    fi
+    if [[ ! -b "$persist" ]]; then
+        publish_dtb "$output_real"
+        printf 'sheng-fdt-identities: persist unavailable; generated generic DTB\n' >&2
+        return
+    fi
+    ((EUID == 0)) || die "reading persist requires root"
+
+    umask 077
+    TEMP_DIR="$(mktemp -d /run/sheng-fdt-identities.XXXXXX)"
+    wlan_file="$TEMP_DIR/wlan_mac.bin"
+    bt_file="$TEMP_DIR/bt_nv.bin"
+
+    debugfs -R "dump $WLAN_SOURCE $wlan_file" "$persist" >/dev/null 2>&1 || \
+        die "failed to read Wi-Fi identity from persist"
+    debugfs -R "dump $BT_SOURCE $bt_file" "$persist" >/dev/null 2>&1 || \
+        die "failed to read Bluetooth identity from persist"
+    [[ -f "$wlan_file" && -f "$bt_file" ]] || die "factory identity files are missing"
+
+    IFS= read -r wlan_line < "$wlan_file" || true
+    wlan_line="${wlan_line%$'\r'}"
+    [[ "$wlan_line" =~ ^wlan0=([0-9A-Fa-f]{12})$ ]] || \
+        die "invalid Wi-Fi identity format"
+    wlan_compact="${BASH_REMATCH[1],,}"
+    valid_unicast_mac "$wlan_compact" || die "invalid Wi-Fi factory address"
+    for ((index = 0; index < 12; index += 2)); do
+        wlan_bytes+=("${wlan_compact:index:2}")
+    done
+
+    [[ "$(stat -c %s "$bt_file")" == 6 ]] || die "invalid Bluetooth identity size"
+    read -r -a bt_bytes <<< "$(od -An -v -t x1 "$bt_file")"
+    ((${#bt_bytes[@]} == 6)) || die "invalid Bluetooth identity data"
+    bt_compact="$(printf '%s' "${bt_bytes[@]}")"
+    valid_unicast_mac "$bt_compact" || die "invalid Bluetooth factory address"
+
+    # Android persist stores the human-readable order; DT uses Bluetooth's
+    # least-significant-byte-first representation.
+    for ((index = 5; index >= 0; index--)); do
+        bt_fdt_bytes+=("${bt_bytes[$index]}")
+    done
+
+    fdtput -t bx "$STAGED_DTB" "$WLAN_NODE" local-mac-address "${wlan_bytes[@]}"
+    fdtput -t bx "$STAGED_DTB" "$BT_NODE" local-bd-address "${bt_fdt_bytes[@]}"
+    verify_property "$STAGED_DTB" "$WLAN_NODE" local-mac-address "${wlan_bytes[@]}" || \
+        die "Wi-Fi DT property verification failed"
+    verify_property "$STAGED_DTB" "$BT_NODE" local-bd-address "${bt_fdt_bytes[@]}" || \
+        die "Bluetooth DT property verification failed"
+
+    publish_dtb "$output_real"
+    printf 'sheng-fdt-identities: injected factory hardware identities\n' >&2
+}
+
+main "$@"

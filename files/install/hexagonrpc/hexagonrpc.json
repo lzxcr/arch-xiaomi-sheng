@@ -1,0 +1,45 @@
+{
+    "_comment": "Xiaomi sheng Android firmware path mappings.",
+    "path_mappings": [
+        {
+            "virtual": "/odm",
+            "physical": "odm"
+        },
+        {
+            "virtual": "/vendor/etc",
+            "physical": "vendor/etc"
+        },
+        {
+            "virtual": "/vendor/dsp",
+            "physical": "dsp"
+        },
+        {
+            "virtual": "/vendor/lib/rfsa",
+            "physical": "vendor/lib/rfsa"
+        },
+        {
+            "virtual": "/vendor/firmware",
+            "physical": "vendor/firmware"
+        },
+        {
+            "virtual": "/usr/lib/qcom",
+            "physical": "dsp"
+        },
+        {
+            "virtual": "/dsp",
+            "physical": "dsp"
+        },
+        {
+            "virtual": "/persist",
+            "physical": "persist"
+        },
+        {
+            "virtual": "/mnt/vendor/persist",
+            "physical": "persist"
+        },
+        {
+            "virtual": "/sys/devices/soc0",
+            "physical": "socinfo"
+        }
+    ]
+}

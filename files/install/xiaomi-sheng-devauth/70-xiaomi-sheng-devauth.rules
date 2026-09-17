@@ -1,0 +1,3 @@
+# The authentication endpoint has exactly one userspace consumer.  Device
+# activation keeps the daemon present whenever the WN8030 controller exists.
+ACTION=="add", SUBSYSTEM=="misc", KERNEL=="nanosic_auth", OWNER="root", GROUP="root", MODE="0600", TAG+="systemd", ENV{SYSTEMD_WANTS}+="xiaomi-sheng-devauth.service"

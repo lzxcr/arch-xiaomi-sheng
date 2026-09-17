@@ -1,0 +1,41 @@
+diff --git a/processcore/plugins/gpu/gpu.cpp b/processcore/plugins/gpu/gpu.cpp
+index 64d7993..784e810 100644
+--- a/processcore/plugins/gpu/gpu.cpp
++++ b/processcore/plugins/gpu/gpu.cpp
+@@ -17,6 +17,7 @@
+ #include <iostream>
+ #include <sstream>
+ #include <string>
++#include <utility>
+ 
+ #include <QDebug>
+ #include <QFile>
+@@ -321,7 +322,7 @@ bool GpuPlugin::processPidEntry(const fs::path &path, GpuFd &proc)
+             // Unit can be KiB (matching the attribute), MiB or unspecified (Bytes)
+             if (value.endsWith("KiB")) {
+                 proc.vram += mem;
+-            } else if (value.endsWith("Mib")) {
++            } else if (value.endsWith("MiB")) {
+                 proc.vram += mem * 1024;
+             } else {
+                 proc.vram += mem / 1024;
+@@ -335,9 +336,18 @@ bool GpuPlugin::processPidEntry(const fs::path &path, GpuFd &proc)
+         proc.gfx = engineValues[amd_engine];
+     } else if (driver == intel_drm_driver) {
+         proc.gfx = engineValues[intel_engine];
++    } else {
++        // drm-engine-* is a driver-independent uAPI. Drivers such as msm,
++        // panfrost and v3d expose valid counters without being PCI AMD or
++        // Intel devices, so retain all of their engine time.
++        for (const auto engineTime : std::as_const(engineValues)) {
++            proc.gfx += engineTime;
++        }
+     }
+ 
+-    return (proc.gfx != 0) && (proc.vram != 0);
++    // A driver may expose engine accounting without memory accounting (and
++    // vice versa). Do not discard otherwise useful data.
++    return proc.gfx != 0 || proc.vram != 0;
+ }
+ 
+ void GpuPlugin::processPidDir(const fs::path &path, KSysGuard::Process *proc, const std::unordered_map<HistoryKey, GpuFd> &previousValues)

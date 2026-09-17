@@ -1,0 +1,30 @@
+--- a/arch/arm64/boot/dts/qcom/sm8550-xiaomi-sheng.dts
++++ b/arch/arm64/boot/dts/qcom/sm8550-xiaomi-sheng.dts
+@@ -226,6 +226,14 @@
+ 			no-map;
+ 		};
+ 
++		fastrpc_mem: fastrpc {
++			compatible = "shared-dma-pool";
++			alloc-ranges = <0x0 0x00000000 0x0 0xffffffff>;
++			alignment = <0x0 0x400000>;
++			size = <0x0 0x1000000>;
++			reusable;
++		};
++
+ 		llcc_lpi_mem: llcc-lpi-region@ff800000 {
+ 			reg = <0 0xff800000 0 0x600000>;
+ 			no-map;
+@@ -1500,6 +1508,12 @@
+ };
+ 
+ &remoteproc_adsp {
++	glink-edge {
++		fastrpc {
++			memory-region = <&fastrpc_mem>;
++		};
++	};
++
+ 	firmware-name = "qcom/sm8550/sheng/adsp.mbn",
+ 			"qcom/sm8550/sheng/adsp_dtb.mbn";
+ 	status = "okay";

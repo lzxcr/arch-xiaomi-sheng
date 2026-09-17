@@ -92,7 +92,7 @@ trap cleanup EXIT
 desktop_packages() {
   case "$ROOTFS_DESKTOP" in
     kde)
-      printf '%s\n' plasma-meta konsole dolphin plasma-nm plasma-pa \
+      printf '%s\n' libksysguard ksystemstats plasma-meta konsole dolphin plasma-nm plasma-pa \
         kscreen powerdevil spectacle gwenview sddm
       ;;
     gnome)
@@ -133,7 +133,15 @@ main() {
   local -a desktop_pkgs=()
   local -a extra_pkgs=()
   local -a repository_files=()
-  local -a base_pkgs=(base vim sudo networkmanager)
+  local -a base_pkgs=(
+    alsa-utils
+    base
+    networkmanager
+    rtkit
+    sudo
+    vim
+    wireless-regdb
+  )
 
   validate_options
   require_commands arch-chroot awk chpasswd cp e2fsck find install mkfs.ext4 \
@@ -186,12 +194,12 @@ main() {
     sudo tee "$MOUNT_DIR/etc/pacman.conf.new" >/dev/null
   sudo mv "$MOUNT_DIR/etc/pacman.conf.new" "$MOUNT_DIR/etc/pacman.conf"
 
-  msg "安装 ${#PROJECT_PACKAGES[@]} 个 sheng 硬件支持包"
+  msg "安装 ${#ROOTFS_PACKAGES[@]} 个 sheng 核心硬件支持包"
   # Suppress post hooks during the package transaction. The boot entry does
   # not exist yet, and running a flashing hook from a mounted build image is
   # unsafe. A final, explicitly non-flashing mkinitcpio run happens below.
   sudo arch-chroot "$MOUNT_DIR" /usr/bin/env MKINITCPIO_POST_HOOKS=/dev/null \
-    pacman -Syu --noconfirm -- "${PROJECT_PACKAGES[@]}"
+    pacman -Syu --noconfirm -- "${ROOTFS_PACKAGES[@]}"
 
   mapfile -t desktop_pkgs < <(desktop_packages)
   if ((${#desktop_pkgs[@]} > 0)); then
@@ -241,9 +249,8 @@ devicetree /sm8550-xiaomi-sheng.dtb
 options $ROOTFS_KERNEL_CMDLINE
 EOF
 
-  msg "生成 initramfs 与 boot.img（构建环境禁止刷写分区）"
-  sudo arch-chroot "$MOUNT_DIR" /usr/bin/env BOOTFLASH_NO_FLASH=1 \
-    mkinitcpio -p linux-xiaomi-sheng
+  msg "生成 initramfs 与 boot.img（post hook 仅构建镜像）"
+  sudo arch-chroot "$MOUNT_DIR" mkinitcpio -p linux-xiaomi-sheng
   [[ -f "$MOUNT_DIR/boot/boot.img" ]] || die "boot.img 未生成"
   sudo cp "$MOUNT_DIR/boot/boot.img" "$boot_image"
   sudo chown "$(id -u):$(id -g)" "$boot_image"

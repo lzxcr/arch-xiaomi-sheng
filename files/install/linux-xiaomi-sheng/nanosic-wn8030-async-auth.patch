@@ -1,0 +1,146 @@
+diff --git a/drivers/hid/hid-nanosic-wn8030.c b/drivers/hid/hid-nanosic-wn8030.c
+index 1769e19..3dbd795 100644
+--- a/drivers/hid/hid-nanosic-wn8030.c
++++ b/drivers/hid/hid-nanosic-wn8030.c
+@@ -76,12 +76,10 @@ struct nanosic_wn8030 {
+ 	/* Authentication */
+ 	struct miscdevice auth_misc;
+ 	wait_queue_head_t auth_read_wq;
+-	struct completion auth_token_ready;
+ 	bool auth_open;
+ 	bool auth_request_pending;
+ 	u8 auth_uid[16];
+ 	u8 auth_challenge[16];
+-	u8 auth_token[16];
+ };
+ 
+ static const struct regmap_config nanosic_wn8030_regmap_config = {
+@@ -748,7 +746,7 @@ static void nanosic_wn8030_handle_vendor(struct nanosic_wn8030 *nanosic, u8 *buf
+ 	/* WN8012(KB) -> HOST, kb auth */
+ 	/* 0x0/0x1 - init auth, 0x64 - repeat request auth */
+ 	else if (buf[5] == 0x38 && buf[6] == 0x80 && buf[7] == 0x24) {
+-		if (nanosic->auth_open)
++		if (READ_ONCE(nanosic->auth_open))
+ 			nanosic_wn8030_xm_auth_init(nanosic);
+ 	}
+ 	/* WN8012(KB) -> HOST, kb auth init */
+@@ -760,7 +758,6 @@ static void nanosic_wn8030_handle_vendor(struct nanosic_wn8030 *nanosic, u8 *buf
+ 				     0x0e, 0x68, 0x1d, 0x3d,
+ 				     0x6b, 0x32, 0xa5, 0xa6 };
+ 
+-		reinit_completion(&nanosic->auth_token_ready);
+ 		memcpy(nanosic->auth_uid, &buf[11], 16);
+ 
+ 		nanosic_wn8030_xm_auth_s3t1(nanosic, key_meta, challenge);
+@@ -768,21 +765,8 @@ static void nanosic_wn8030_handle_vendor(struct nanosic_wn8030 *nanosic, u8 *buf
+ 	/* WN8012(KB) -> HOST, kb auth s3t1 */
+ 	else if (buf[5] == 0x38 && buf[6] == 0x80 && buf[7] == 0x32) {
+ 		memcpy(nanosic->auth_challenge, &buf[25], 16);
+-		nanosic->auth_request_pending = true;
++		WRITE_ONCE(nanosic->auth_request_pending, true);
+ 		wake_up_interruptible(&nanosic->auth_read_wq);
+-		if (wait_for_completion_interruptible_timeout(&nanosic->auth_token_ready,
+-							      msecs_to_jiffies(5000)) <= 0) {
+-			dev_err(nanosic->dev, "timeout waiting for keyboard auth token\n");
+-		} else {
+-			int ret;
+-
+-			ret = nanosic_wn8030_xm_auth_s5t1(nanosic, nanosic->auth_token);
+-			if (!ret) {
+-				mutex_lock(&nanosic->conn_mutex);
+-				nanosic_wn8030_sync_kbd_backlight(nanosic);
+-				mutex_unlock(&nanosic->conn_mutex);
+-			}
+-		}
+ 	}
+ }
+ 
+@@ -1335,19 +1319,34 @@ static int nanosic_auth_open(struct inode *inode, struct file *file)
+ {
+ 	struct nanosic_wn8030 *nanosic =
+ 		container_of(file->private_data, struct nanosic_wn8030, auth_misc);
++	int ret = 0;
+ 
+-	if (nanosic->auth_open)
+-		return -EBUSY;
+-	nanosic->auth_open = true;
++	mutex_lock(&nanosic->conn_mutex);
++	if (nanosic->auth_open) {
++		ret = -EBUSY;
++		goto out_unlock;
++	}
++	WRITE_ONCE(nanosic->auth_open, true);
+ 	file->private_data = nanosic;
+-	return 0;
++
++	/* The daemon may start after the keyboard's first auth request. */
++	if (nanosic->keyboard_attached) {
++		ret = nanosic_wn8030_xm_auth_init(nanosic);
++		if (ret)
++			WRITE_ONCE(nanosic->auth_open, false);
++	}
++
++out_unlock:
++	mutex_unlock(&nanosic->conn_mutex);
++	return ret;
+ }
+ 
+ static int nanosic_auth_release(struct inode *inode, struct file *file)
+ {
+ 	struct nanosic_wn8030 *nanosic = file->private_data;
+ 
+-	nanosic->auth_open = false;
++	WRITE_ONCE(nanosic->auth_request_pending, false);
++	WRITE_ONCE(nanosic->auth_open, false);
+ 	return 0;
+ }
+ 
+@@ -1362,13 +1361,12 @@ static ssize_t nanosic_auth_read(struct file *file, char __user *buf,
+ 		return -EINVAL;
+ 
+ 	ret = wait_event_interruptible(nanosic->auth_read_wq,
+-				       nanosic->auth_request_pending);
++				       READ_ONCE(nanosic->auth_request_pending));
+ 	if (ret)
+ 		return ret;
+ 
+ 	memcpy(req.uid, nanosic->auth_uid, sizeof(req.uid));
+ 	memcpy(req.challenge, nanosic->auth_challenge, sizeof(req.challenge));
+-	nanosic->auth_request_pending = false;
+ 
+ 	if (copy_to_user(buf, &req, sizeof(req)))
+ 		return -EFAULT;
+@@ -1381,6 +1379,7 @@ static ssize_t nanosic_auth_write(struct file *file, const char __user *buf,
+ {
+ 	struct nanosic_wn8030 *nanosic = file->private_data;
+ 	u8 token[16];
++	int ret;
+ 
+ 	if (count != sizeof(token))
+ 		return -EINVAL;
+@@ -1388,8 +1387,15 @@ static ssize_t nanosic_auth_write(struct file *file, const char __user *buf,
+ 	if (copy_from_user(token, buf, sizeof(token)))
+ 		return -EFAULT;
+ 
+-	memcpy(nanosic->auth_token, token, sizeof(token));
+-	complete(&nanosic->auth_token_ready);
++	ret = nanosic_wn8030_xm_auth_s5t1(nanosic, token);
++	if (ret)
++		return ret;
++
++	mutex_lock(&nanosic->conn_mutex);
++	nanosic_wn8030_sync_kbd_backlight(nanosic);
++	mutex_unlock(&nanosic->conn_mutex);
++
++	WRITE_ONCE(nanosic->auth_request_pending, false);
+ 
+ 	return sizeof(token);
+ }
+@@ -1464,7 +1470,6 @@ static int nanosic_wn8030_probe(struct i2c_client *client)
+ 	nanosic->hall_handler.private = nanosic;
+ 
+ 	init_waitqueue_head(&nanosic->auth_read_wq);
+-	init_completion(&nanosic->auth_token_ready);
+ 	spin_lock_init(&nanosic->hinge_lock);
+ 	init_waitqueue_head(&nanosic->hinge_read_wq);
+ 	nanosic->hinge_sample.version = NANOSIC_HINGE_ABI_VERSION;

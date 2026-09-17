@@ -1,13 +1,49 @@
 #!/bin/bash
 #
 # bootflash — mkinitcpio post-generation hook
-# Builds boot.img from /boot/loader/entries/arch.conf. On an installed device
-# it also flashes boot_a and boot_b; image builders set BOOTFLASH_NO_FLASH=1.
+#
+# This hook has one responsibility: atomically build /boot/boot.img from the
+# installed Boot Loader Specification entry.  Raw partition writes deliberately
+# live in the separately-invoked sheng-boot-slot tool.
 #
 set -euo pipefail
 
 ENTRY_CONF="/boot/loader/entries/arch.conf"
 BOOT_IMG="/boot/boot.img"
+TEMP_IMAGE=""
+TEMP_DTB=""
+
+cleanup() {
+    [[ -z "$TEMP_IMAGE" ]] || rm -f -- "$TEMP_IMAGE"
+    [[ -z "$TEMP_DTB" ]] || rm -f -- "$TEMP_DTB"
+}
+trap cleanup EXIT
+
+entry_value() {
+    local key="$1"
+
+    awk -v key="$key" '
+        $1 == key {
+            sub(/^[^[:space:]]+[[:space:]]+/, "")
+            print
+            exit
+        }
+    ' "$ENTRY_CONF"
+}
+
+boot_path() {
+    local configured="$1"
+    local resolved
+
+    resolved="$(realpath -m -- "/boot/${configured#/}")"
+    case "$resolved" in
+        /boot/*) printf '%s\n' "$resolved" ;;
+        *)
+            echo "ERROR: Boot entry path escapes /boot: $configured" >&2
+            exit 1
+            ;;
+    esac
+}
 
 if [ ! -f "$ENTRY_CONF" ]; then
     echo "==> [bootflash] $ENTRY_CONF not found; skipping boot image generation"
@@ -16,29 +52,37 @@ fi
 
 echo "==> [bootflash] Parsing $ENTRY_CONF ..."
 
-CONF_LINUX=$(sed -n 's/^linux[[:space:]]\+\(.*\)/\1/p' "$ENTRY_CONF" | xargs)
-CONF_INITRD=$(sed -n 's/^initrd[[:space:]]\+\(.*\)/\1/p' "$ENTRY_CONF" | xargs)
-CONF_DTB=$(sed -n 's/^devicetree[[:space:]]\+\(.*\)/\1/p' "$ENTRY_CONF" | xargs)
-CONF_OPTIONS=$(sed -n 's/^options[[:space:]]\+\(.*\)/\1/p' "$ENTRY_CONF" | xargs)
+CONF_LINUX="$(entry_value linux)"
+CONF_INITRD="$(entry_value initrd)"
+CONF_DTB="$(entry_value devicetree)"
+CONF_OPTIONS="$(entry_value options)"
 
-KERNEL_PATH="/boot/${CONF_LINUX#/}"
-RAMDISK_PATH="/boot/${CONF_INITRD#/}"
-DTB_PATH="/boot/${CONF_DTB#/}"
+if [[ -z "$CONF_LINUX" || -z "$CONF_INITRD" ]]; then
+    echo "ERROR: $ENTRY_CONF must contain one linux and one initrd entry" >&2
+    exit 1
+fi
+
+KERNEL_PATH="$(boot_path "$CONF_LINUX")"
+RAMDISK_PATH="$(boot_path "$CONF_INITRD")"
+DTB_PATH=""
+[[ -z "$CONF_DTB" ]] || DTB_PATH="$(boot_path "$CONF_DTB")"
 
 echo "  Kernel:    $KERNEL_PATH"
 echo "  Initramfs: $RAMDISK_PATH"
 echo "  DTB:       $DTB_PATH"
 
-if [ ! -f "$KERNEL_PATH" ]; then
+if [[ ! -f "$KERNEL_PATH" ]]; then
     echo "ERROR: Kernel not found: $KERNEL_PATH" >&2
     exit 1
 fi
-if [ ! -f "$RAMDISK_PATH" ]; then
+if [[ ! -f "$RAMDISK_PATH" ]]; then
     echo "ERROR: Initramfs not found: $RAMDISK_PATH" >&2
     exit 1
 fi
 
 echo "==> Building boot.img ..."
+
+TEMP_IMAGE="$(mktemp --tmpdir=/boot .boot.img.XXXXXX)"
 
 MKBOOTIMG_ARGS=(
     --kernel "$KERNEL_PATH"
@@ -47,34 +91,30 @@ MKBOOTIMG_ARGS=(
     --base 0x00000000
     --pagesize 4096
     --header_version 2
-    -o "$BOOT_IMG"
+    -o "$TEMP_IMAGE"
 )
 
-if [ -n "$CONF_DTB" ] && [ -f "$DTB_PATH" ]; then
-    MKBOOTIMG_ARGS+=(--dtb "$DTB_PATH")
+if [[ -n "$CONF_DTB" ]]; then
+    if [[ ! -f "$DTB_PATH" ]]; then
+        echo "ERROR: Device tree not found: $DTB_PATH" >&2
+        exit 1
+    fi
+    TEMP_DTB="$(mktemp /run/sheng-boot-dtb.XXXXXX)"
+    sheng-fdt-identities "$DTB_PATH" "$TEMP_DTB"
+    MKBOOTIMG_ARGS+=(--dtb "$TEMP_DTB")
 fi
 
 mkbootimg "${MKBOOTIMG_ARGS[@]}"
 
-if [ ! -f "$BOOT_IMG" ]; then
+if [[ ! -s "$TEMP_IMAGE" ]]; then
     echo "ERROR: mkbootimg failed" >&2
     exit 1
 fi
 
-if [ "${BOOTFLASH_NO_FLASH:-0}" = "1" ]; then
-    echo "==> [bootflash] BOOTFLASH_NO_FLASH=1; boot.img built without flashing"
-    exit 0
-fi
+chmod 0644 "$TEMP_IMAGE"
+mv -f -- "$TEMP_IMAGE" "$BOOT_IMG"
+TEMP_IMAGE=""
+sync -f "$BOOT_IMG"
 
-echo "==> Flashing boot.img to both A/B slots ..."
-for part in boot_a boot_b; do
-    TARGET="/dev/disk/by-partlabel/$part"
-    if [ -L "$TARGET" ]; then
-        echo "  → $TARGET"
-        dd if="$BOOT_IMG" of="$TARGET" bs=4M status=progress
-    else
-        echo "  (skip $TARGET — not found)"
-    fi
-done
-sync
-echo "==> [Success] A/B boot partitions updated"
+echo "==> [bootflash] Built $BOOT_IMG; no partition was written"
+echo "==> [bootflash] Use sheng-boot-slot install --slot a|b explicitly"

@@ -1,7 +1,7 @@
 # Maintainer: Jacobi Lie <jssnlzxcr@gmail.com>
 pkgname=hexagonrpc
 pkgver=0.6.0.r241.gdb659bd
-pkgrel=1
+pkgrel=8
 pkgdesc="Modern userspace library and reverse-RPC daemon for Qualcomm FastRPC"
 arch=('aarch64')
 url="https://github.com/lzxcr/hexagonrpc"
@@ -9,11 +9,16 @@ license=('GPL-3.0-or-later')
 depends=('gcc-libs' 'glibc' 'systemd')
 makedepends=('git' 'rust')
 _commit=db659bdd117337766846bb6804a4453b6db06925
-source=("${pkgname}::git+${url}.git#commit=${_commit}")
-sha256sums=('SKIP')
+source=("${pkgname}::git+${url}.git#commit=${_commit}"
+        "files.tar.gz")
+sha256sums=('SKIP'
+            'bc22bff0edbf0c6fc84868bc2d6994c6d67265c513bb67ff86738d0163487797')
 
 prepare() {
   cd "${pkgname}"
+  patch -Np1 -i "${srcdir}/config-malformed.patch"
+  patch -Np1 -i "${srcdir}/invoke-result.patch"
+  patch -Np1 -i "${srcdir}/android-rfsa.patch"
   export RUSTUP_TOOLCHAIN=stable
   cargo fetch --locked --target "${CARCH}-unknown-linux-gnu"
 }
@@ -37,10 +42,31 @@ package() {
 
   install -Dm0755 target/release/hexagonrpcd \
     "${pkgdir}/usr/bin/hexagonrpcd"
+  install -Dm0755 target/release/hexagonrpc-probe \
+    "${pkgdir}/usr/bin/hexagonrpc-probe"
   install -Dm0755 target/release/sns-registrygen \
     "${pkgdir}/usr/bin/sns-registrygen"
 
   make -C data DESTDIR="${pkgdir}" PREFIX=/usr install
+
+  # Device discovery grants access only.  Static PD listeners are optional
+  # consumers and must never be pulled into boot or the kernel audio path.
+  install -Dm0644 "${srcdir}/60-hexagonrpc.rules" \
+    "${pkgdir}/usr/lib/udev/rules.d/60-hexagonrpc.rules"
+
+  # The stock Qualcomm sensor config writes its registry below
+  # /mnt/vendor/persist, while upstream only mapped the /persist alias at the
+  # pinned commit.  A per-device config takes precedence over the global one.
+  install -Dm0644 "${srcdir}/hexagonrpc.json" \
+    "${pkgdir}/usr/share/qcom/sm8550/Xiaomi/sheng/hexagonrpc.json"
+
+  # Bound recovery attempts so future firmware faults cannot turn remoteproc
+  # recovery plus udev auto-start into an unlimited crash loop.
+  local unit
+  for unit in "${pkgdir}"/usr/lib/systemd/system/hexagonrpcd-*.service; do
+    sed -i '/^ConditionPathExists=/a StartLimitBurst=3' "${unit}"
+    sed -i '/^ConditionPathExists=/a StartLimitIntervalSec=60s' "${unit}"
+  done
 
   install -Dm0644 COPYING \
     "${pkgdir}/usr/share/licenses/${pkgname}/COPYING"

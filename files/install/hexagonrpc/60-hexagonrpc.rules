@@ -1,0 +1,5 @@
+# FastRPC is an optional userspace compute/RPC interface.  Creating a device
+# node must not attach a static PD or make ADSP/CDSP availability part of the
+# boot transaction.  Consumers start the matching hexagonrpcd unit explicitly.
+ACTION=="add", SUBSYSTEM=="dma_heap", KERNEL=="system", OWNER="root", GROUP="hexagonrpc", MODE="0660"
+ACTION=="add", SUBSYSTEM=="misc", KERNEL=="fastrpc-*", OWNER="root", GROUP="hexagonrpc", MODE="0660"

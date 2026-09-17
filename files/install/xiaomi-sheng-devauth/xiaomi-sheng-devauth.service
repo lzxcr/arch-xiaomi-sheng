@@ -1,13 +1,28 @@
 [Unit]
 Description=Xiaomi DevAuth Service
 Requires=qteesupplicant.service
-After=qteesupplicant.service
+After=qteesupplicant.service dev-nanosic_auth.device
+BindsTo=dev-nanosic_auth.device
+ConditionPathExists=/dev/nanosic_auth
+StartLimitIntervalSec=60s
+StartLimitBurst=3
 
 [Service]
 Type=simple
 ExecStart=/usr/bin/xiaomi_devauth
 Restart=on-failure
 RestartSec=5s
-
-[Install]
-WantedBy=sysinit.target
+NoNewPrivileges=true
+CapabilityBoundingSet=
+ProtectSystem=strict
+ProtectHome=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+PrivateTmp=true
+RestrictNamespaces=true
+RestrictRealtime=true
+LockPersonality=true
+MemoryDenyWriteExecute=true
+SystemCallArchitectures=native
+RestrictAddressFamilies=AF_UNIX

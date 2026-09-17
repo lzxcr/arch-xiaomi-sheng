@@ -9,7 +9,7 @@ license=('custom')
 options=('!strip')
 depends=('hexagonrpc' 'iio-sensor-proxy')
 source=("files.tar.gz")
-sha256sums=('SKIP')
+sha256sums=('4c90c4ee5f4cdbbc4b08fc243542c9a7c51eec59c2a3e0f3060f5e650d2a50e9')
 
 package() {
   cp -dr --no-preserve=ownership "${srcdir}/usr" "${pkgdir}/"

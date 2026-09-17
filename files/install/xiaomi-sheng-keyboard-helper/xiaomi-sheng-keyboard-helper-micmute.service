@@ -2,6 +2,8 @@
 Description=Xiaomi sheng keyboard microphone mute indicator
 After=pipewire-pulse.service
 ConditionPathExists=/sys/class/leds/nanosic::micmute/brightness
+StartLimitIntervalSec=30
+StartLimitBurst=5
 
 [Service]
 Type=simple

@@ -1,0 +1,66 @@
+# Maintainer: Jacobi Lie <jssnlzxcr@gmail.com>
+
+pkgname=libksysguard
+pkgver=6.7.5
+_dirver="${pkgver}"
+pkgrel=1
+pkgdesc='Library for retrieving hardware status, with generic DRM fdinfo GPU support'
+arch=('aarch64')
+url='https://kde.org/plasma-desktop/'
+license=('LGPL-2.0-or-later')
+depends=(
+  glibc
+  kauth
+  kconfig
+  kcoreaddons
+  kdeclarative
+  ki18n
+  kirigami
+  kitemmodels
+  knewstuff
+  kpackage
+  kquickcharts
+  kservice
+  libdrm
+  libgcc
+  libnl
+  libpcap
+  libstdc++
+  lm_sensors
+  qt6-5compat
+  qt6-base
+  qt6-declarative
+  solid
+  systemd-libs
+)
+makedepends=(
+  extra-cmake-modules
+  qt6-tools
+)
+groups=('plasma')
+source=(
+  "https://download.kde.org/stable/plasma/${_dirver}/${pkgname}-${pkgver}.tar.xz"
+  'files.tar.gz'
+)
+sha256sums=(
+  '9069bcf3fe4e491ea774d0d70eb17f99b567299871045a38543fcabcdb56dfc4'
+  '78ba5daba0a811d4f29e59410a83fac5b53b0b8996a6424ce2a2305ecb3fa24e'
+)
+
+prepare() {
+  patch -d "${pkgname}-${pkgver}" -Np1 \
+    -i "${srcdir}/0001-generic-drm-fdinfo.patch"
+}
+
+build() {
+  cmake -B build -S "${pkgname}-${pkgver}" \
+    -DCMAKE_BUILD_TYPE=None \
+    -DCMAKE_INSTALL_LIBEXECDIR=lib \
+    -DBUILD_TESTING=OFF
+  cmake --build build --parallel "${SHENG_BUILD_JOBS:-2}"
+}
+
+package() {
+  DESTDIR="${pkgdir}" cmake --install build
+  setcap CAP_NET_RAW=+ep "${pkgdir}/usr/lib/ksysguard/ksgrd_network_helper"
+}

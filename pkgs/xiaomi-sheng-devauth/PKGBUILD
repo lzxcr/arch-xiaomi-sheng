@@ -2,21 +2,27 @@
 pkgname=xiaomi-sheng-devauth
 _pkgname=sheng_devauth
 pkgver=r5.bac03b5
-pkgrel=1
+pkgrel=3
 pkgdesc="Keyboard authentication daemon for Xiaomi devices"
 arch=('aarch64')
 url="https://github.com/ianchb/sheng_devauth"
 license=('custom')
 depends=('systemd')
 makedepends=('git' 'make' 'gcc')
-source=("git+https://github.com/ianchb/sheng_devauth.git"
+_commit=bac03b5bcfefa1467ebad490edd910a6cef8a207
+source=("git+https://github.com/ianchb/sheng_devauth.git#commit=${_commit}"
         "files.tar.gz")
 sha256sums=('SKIP'
-            'SKIP')
+            'ef6c17c9035e478bc662a11604df0745e7f948cead234e33e08216766ef3e40b')
 
 pkgver() {
   cd "${_pkgname}"
   printf "r%s.%s" "$(git rev-list --count HEAD)" "$(git rev-parse --short HEAD)"
+}
+
+prepare() {
+  cd "${_pkgname}"
+  patch -Np1 -i "${srcdir}/safe-io.patch"
 }
 
 build() {
@@ -31,4 +37,6 @@ package() {
   # 从 files.tar.gz 安装 systemd 单元（含 qteesupplicant 依赖）
   install -Dm644 "${srcdir}/xiaomi-sheng-devauth.service" \
     "${pkgdir}/usr/lib/systemd/system/xiaomi-sheng-devauth.service"
+  install -Dm644 "${srcdir}/70-xiaomi-sheng-devauth.rules" \
+    "${pkgdir}/usr/lib/udev/rules.d/70-xiaomi-sheng-devauth.rules"
 }

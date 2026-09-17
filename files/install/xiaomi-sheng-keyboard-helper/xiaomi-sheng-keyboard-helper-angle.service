@@ -1,14 +1,15 @@
 [Unit]
 Description=Xiaomi sheng keyboard fold angle helper
-Wants=hexagonrpcd-adsp-sensorspd.service
-After=hexagonrpcd-adsp-sensorspd.service
-StartLimitIntervalSec=0
+# Keyboard HID is kernel-only.  This optional fold-angle policy combines the
+# nanosic_hinge ABI with libssc and exits successfully when SSC is unavailable.
+StartLimitIntervalSec=60s
+StartLimitBurst=3
 
 [Service]
 Type=simple
 ExecStart=/usr/lib/xiaomi-sheng-keyboard-helper/xiaomi-sheng-keyboard-helper --angle
 Restart=on-failure
-RestartSec=2
+RestartSec=10
 NoNewPrivileges=true
 ProtectHome=true
 ProtectSystem=strict

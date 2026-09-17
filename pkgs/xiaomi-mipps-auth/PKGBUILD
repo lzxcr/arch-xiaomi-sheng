@@ -16,7 +16,7 @@ depends=(
 source=("${pkgname}-${pkgver}.tar.gz::${url}/archive/refs/tags/${pkgver}.tar.gz"
         "files.tar.gz")
 sha256sums=('2373622166c46bfa7c090e602eb2c409102dead2849f6ba36add7ed210479150'
-            'SKIP')
+            '7bf5be095fca0e5a041133f30e33151d1bbbcc0b1255772df2e0d558763e7285')
 
 package() {
   cd "${pkgname}-${pkgver}"

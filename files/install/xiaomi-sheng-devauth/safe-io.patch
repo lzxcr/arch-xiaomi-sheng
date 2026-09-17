@@ -1,0 +1,251 @@
+diff --git a/main.c b/main.c
+index 8708edb..c4fbe04 100644
+--- a/main.c
++++ b/main.c
+@@ -1,4 +1,5 @@
+ #include <fcntl.h>
++#include <stdint.h>
+ #include <stdio.h>
+ #include <stdlib.h>
+ #include <string.h>
+@@ -10,6 +11,9 @@
+ #include "IQSEEComCompatAppLoader.h"
+ 
+ #define DIST_NAME_SIZE 256
++#define AUTH_BUFFER_SIZE 128
++#define AUTH_TOKEN_SIZE 16
++#define MAX_TA_SIZE (16U * 1024U * 1024U)
+ 
+ static int qseecom_start_tzapp(
+ 	Object app_loader,
+@@ -19,45 +23,66 @@ static int qseecom_start_tzapp(
+ ) {
+ 	char dist_name[DIST_NAME_SIZE];
+ 	size_t dist_name_len;
+-	size_t file_size;
+-	char *buffer;
+-	FILE *file;
+-	int ret;
++	size_t file_size = 0;
++	char *buffer = NULL;
++	FILE *file = NULL;
++	long end;
++	int ret = -1;
+ 
+ 	char file_name[1024] = { 0 };
+-	snprintf(file_name, sizeof(file_name), "%s/%s.mbn", file_path, app_name);
++	if (snprintf(file_name, sizeof(file_name), "%s/%s.mbn", file_path,
++		     app_name) >= (int)sizeof(file_name)) {
++		syslog(LOG_ERR, "Trusted application path is too long");
++		return -1;
++	}
+ 
+-	file = fopen(file_name, "r");
++	file = fopen(file_name, "rb");
+ 	if (!file) {
+-		syslog(LOG_ERR, "File %s open error: %s\n", file_name, strerror(errno));
++		syslog(LOG_ERR, "File %s open error: %s", file_name, strerror(errno));
+ 		return -1;
+ 	}
+ 
+-	fseek(file, 0, SEEK_END);
+-	file_size = ftell(file);
+-	fseek(file, 0, SEEK_SET);
++	if (fseek(file, 0, SEEK_END) || (end = ftell(file)) <= 0 ||
++	    (unsigned long)end > MAX_TA_SIZE || fseek(file, 0, SEEK_SET)) {
++		syslog(LOG_ERR, "Invalid trusted application image %s", file_name);
++		goto out;
++	}
++	file_size = (size_t)end;
+ 
+ 	buffer = malloc(file_size);
+-	fread(buffer, 1, file_size, file);
+-	fclose(file);
++	if (!buffer) {
++		syslog(LOG_ERR, "Out of memory loading %s", file_name);
++		goto out;
++	}
++	if (fread(buffer, 1, file_size, file) != file_size) {
++		syslog(LOG_ERR, "Short read loading %s", file_name);
++		goto out;
++	}
+ 
+ 	ret = IQSEEComCompatAppLoader_loadFromBuffer(
+ 		app_loader, buffer, file_size,
+-		app_name, sizeof(app_name),
++		app_name, strlen(app_name) + 1,
+ 		dist_name, DIST_NAME_SIZE, &dist_name_len,
+ 		app_controller);
+ 	if (ret) {
+-		syslog(LOG_ERR, "Loading tzapp failed, result %d\n", ret);
++		syslog(LOG_ERR, "Loading tzapp failed, result %d", ret);
+ 	}
+ 
++out:
+ 	free(buffer);
++	fclose(file);
+ 	return ret;
+ }
+ 
+-void byte2string(const unsigned char *bytes, size_t len, char *output) {
+-    for (size_t i = 0; i < len; i++) {
+-        sprintf(output + i * 2, "%02X", bytes[i]);
+-    }
++static void byte2string(const unsigned char *bytes, size_t len, char *output)
++{
++	static const char hex[] = "0123456789ABCDEF";
++
++	for (size_t i = 0; i < len; i++) {
++		output[i * 2] = hex[bytes[i] >> 4];
++		output[i * 2 + 1] = hex[bytes[i] & 0xf];
++	}
++	output[len * 2] = '\0';
+ }
+ 
+ struct nanosic_auth_req {
+@@ -65,10 +90,20 @@ struct nanosic_auth_req {
+     uint8_t challenge[16];
+ };
+ 
+-int main() {
++int main(void) {
+ 	Object root_env = Object_NULL;
+ 	Object client_env = Object_NULL;
+-	int ret;
++	Object app_loader = Object_NULL;
++	Object app_controller = Object_NULL;
++	char buffer_send[AUTH_BUFFER_SIZE];
++	char buffer_recv[AUTH_BUFFER_SIZE];
++	char uid[33] = { 0 };
++	const char keymeta[] = "00000002";
++	struct nanosic_auth_req req;
++	int fd = -1;
++	int ret = EXIT_FAILURE;
++
++	openlog("xiaomi_devauth", LOG_PID, LOG_DAEMON);
+ 
+ 	ret = MinkCom_getRootEnvObject(&root_env);
+ 	if (ret) {
+@@ -82,9 +117,6 @@ int main() {
+ 		goto exit;
+ 	}
+ 
+-	Object app_loader = Object_NULL;
+-	Object app_controller = Object_NULL;
+-
+ 	ret = IClientEnv_open(client_env, 122, &app_loader);
+ 	if (ret) {
+ 		syslog(LOG_ERR, "Failed to get QSEECOM App Loader object, err=%d\n", ret);
+@@ -96,38 +128,39 @@ int main() {
+ 		goto exit;
+ 	}
+ 
+-	int fd = open("/dev/nanosic_auth", O_RDWR);
++	fd = open("/dev/nanosic_auth", O_RDWR | O_CLOEXEC);
+ 	if (fd < 0) {
+-		ret = fd;
+-		syslog(LOG_ERR, "Can't open /dev/nanosic_auth, err=%d\n", ret);
++		ret = EXIT_FAILURE;
++		syslog(LOG_ERR, "Can't open /dev/nanosic_auth: %s", strerror(errno));
+ 		goto exit;
+ 	}
+ 
+-	char *buffer_send = malloc(128);
+-	char *buffer_recv = malloc(128);
+ 	size_t send_len;
+ 	size_t recv_len;
+ 
+-	char uid[] = "00000000000000000000000000000000";
+-	char keymeta[] = "00000002";
+-	struct nanosic_auth_req req;
+ 	while (1) {
+-		syslog(LOG_DEBUG, "Start wait for uid and keyboard challenge.\n");
+-		ssize_t n = read(fd, &req, sizeof(req));
++		uint32_t operation = 1;
++		uint32_t command = 0x2020;
++		uint32_t status;
++		ssize_t n;
++
++		do {
++			n = read(fd, &req, sizeof(req));
++		} while (n < 0 && errno == EINTR);
+ 		if (n != sizeof(req)) {
+-			syslog(LOG_ERR, "Wrong size of kernel request, expected=%lu got=%zd\n", sizeof(req), n);
++			syslog(LOG_ERR, "Wrong size of kernel request, expected=%zu got=%zd",
++			       sizeof(req), n);
++			ret = EXIT_FAILURE;
+ 			break;
+ 		}
+-		syslog(LOG_DEBUG, "Got UID and keyboard challenge!\n");
+ 		byte2string(req.uid, 16, uid);
+-		syslog(LOG_DEBUG, "UID=%s\n", uid);
+ 		/* RPMB listener 0x2000 is provided system-wide by qteesupplicant.
+ 		 * Registering another listener here returns Object_ERROR_BUSY and
+ 		 * prevents the keyboard token request from reaching devauth. */
+-		memset(buffer_send, 0, 128);
+-		memset(buffer_recv, 0, 128);
+-		*(uint64_t *)(buffer_send + 0) = 0x1;
+-		*(uint32_t *)(buffer_send + 4) = 0x2020;
++		memset(buffer_send, 0, sizeof(buffer_send));
++		memset(buffer_recv, 0, sizeof(buffer_recv));
++		memcpy(buffer_send, &operation, sizeof(operation));
++		memcpy(buffer_send + 4, &command, sizeof(command));
+ 		memcpy(buffer_send + 12, uid, 32);
+ 		memcpy(buffer_send + 12 + 32, keymeta, 8);
+ 		memcpy(buffer_send + 12 + 40, req.challenge, 16);
+@@ -135,36 +168,41 @@ int main() {
+ 		//offline key to produce offline pad token
+ 		ret = IQSEEComCompat_sendRequest(
+ 			app_controller,
+-			buffer_send, 128,
+-			buffer_recv, 128,
+-			buffer_send, 128, &send_len,
+-			buffer_recv, 128, &recv_len,
++			buffer_send, sizeof(buffer_send),
++			buffer_recv, sizeof(buffer_recv),
++			buffer_send, sizeof(buffer_send), &send_len,
++			buffer_recv, sizeof(buffer_recv), &recv_len,
+ 			NULL, 0,
+ 			1,
+ 			Object_NULL, Object_NULL,
+ 			Object_NULL, Object_NULL
+ 		);
+-		if (ret || *(uint32_t *)buffer_recv) {
++		memcpy(&status, buffer_recv, sizeof(status));
++		if (ret || status) {
+ 			//it's fine without fs listner, we don't need to write UID to persist.
+-			if (*(uint32_t *)buffer_recv != 0xaa00000d) {
+-				syslog(LOG_ERR, "devauth command error %d status 0x%x\n", ret, *(uint32_t *)buffer_recv);
++			if (status != 0xaa00000d) {
++				syslog(LOG_ERR, "devauth command error %d status 0x%x",
++				       ret, status);
+ 			}
+ 		}
+-		n = write(fd, buffer_recv + 8, 16);
+-		if (n != 16) {
+-			syslog(LOG_ERR, "Wrong size of kernel response, expected=%d got=%zd\n", 16, n);
++		do {
++			n = write(fd, buffer_recv + 8, AUTH_TOKEN_SIZE);
++		} while (n < 0 && errno == EINTR);
++		if (n != AUTH_TOKEN_SIZE) {
++			syslog(LOG_ERR, "Wrong size of kernel response, expected=%d got=%zd",
++			       AUTH_TOKEN_SIZE, n);
++			ret = EXIT_FAILURE;
+ 			break;
+ 		}
+-		syslog(LOG_DEBUG, "Sent pad token to kernel driver!\n");
+ 	}
+-	free(buffer_send);
+-	free(buffer_recv);
+-	close(fd);
+ 
+ exit:
++	if (fd >= 0)
++		close(fd);
+ 	Object_RELEASE_IF(app_controller);
+ 	Object_RELEASE_IF(app_loader);
+ 	Object_RELEASE_IF(client_env);
+ 	Object_RELEASE_IF(root_env);
++	closelog();
+ 	return ret;
+ }

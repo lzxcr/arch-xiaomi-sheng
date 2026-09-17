@@ -8,7 +8,7 @@ url="https://github.com/ianchb/debian-sheng"
 license=('custom')
 depends=('alsa-ucm-conf')
 source=("files.tar.gz")
-sha256sums=('SKIP')
+sha256sums=('4fea95e5a96ba4598b277f206f3a1126dd903b4472a4457526844529e258e043')
 
 package() {
   cp -dr --no-preserve=ownership "${srcdir}/usr" "${pkgdir}/"

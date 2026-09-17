@@ -1,0 +1,64 @@
+From: arch-xiaomi-sheng maintainers <noreply@example.invalid>
+Date: Mon, 24 Aug 2026 00:00:00 +0800
+Subject: [PATCH] usb: typec: ucsi: make PMIC GLINK re-registration safe
+
+The PMIC GLINK PDR notifier can unregister and later re-register the same
+UCSI instance.  Two error paths make that sequence unsafe:
+
+* pmic_glink_ucsi_register() marks the instance registered even when
+  ucsi_register() fails;
+* ucsi_unregister() frees the connector array without clearing the pointer.
+
+A later PDR-down event can therefore pass a stale connector pointer back to
+ucsi_unregister_port().  This was observed as an osq_lock fault from
+pmic_glink_ucsi_register after a failed UCSI re-registration.
+
+Only publish the registered state after a successful registration and clear
+the connector pointer when unregistering, so both failed registration and
+repeated unregister operations are safe.
+
+Signed-off-by: arch-xiaomi-sheng maintainers <noreply@example.invalid>
+---
+ drivers/usb/typec/ucsi/ucsi.c       | 1 +
+ drivers/usb/typec/ucsi/ucsi_glink.c | 8 +++++++-
+ 2 files changed, 8 insertions(+), 1 deletion(-)
+
+diff --git a/drivers/usb/typec/ucsi/ucsi.c b/drivers/usb/typec/ucsi/ucsi.c
+index 7936b391e39e..99c4449a2f79 100644
+--- a/drivers/usb/typec/ucsi/ucsi.c
++++ b/drivers/usb/typec/ucsi/ucsi.c
+@@ -2379,6 +2379,7 @@ void ucsi_unregister(struct ucsi *ucsi)
+ 	}
+ 
+ 	kfree(ucsi->connector);
++	ucsi->connector = NULL;
+ }
+ EXPORT_SYMBOL_GPL(ucsi_unregister);
+ 
+diff --git a/drivers/usb/typec/ucsi/ucsi_glink.c b/drivers/usb/typec/ucsi/ucsi_glink.c
+index a430af249fee..185e88a99a13 100644
+--- a/drivers/usb/typec/ucsi/ucsi_glink.c
++++ b/drivers/usb/typec/ucsi/ucsi_glink.c
+@@ -315,13 +315,19 @@ static void pmic_glink_ucsi_register(struct work_struct *work)
+ 	struct pmic_glink_ucsi *ucsi = container_of(work, struct pmic_glink_ucsi, register_work);
+ 	unsigned long flags;
+ 	bool pd_running;
++	int ret;
+ 
+ 	spin_lock_irqsave(&ucsi->state_lock, flags);
+ 	pd_running = ucsi->pd_running;
+ 	spin_unlock_irqrestore(&ucsi->state_lock, flags);
+ 
+ 	if (!ucsi->ucsi_registered && pd_running) {
+-		ucsi_register(ucsi->ucsi);
++		ret = ucsi_register(ucsi->ucsi);
++		if (ret) {
++			dev_err(ucsi->dev, "failed to register UCSI interface: %d\n", ret);
++			return;
++		}
++
+ 		ucsi->ucsi_registered = true;
+ 	} else if (ucsi->ucsi_registered && !pd_running) {
+ 		ucsi_unregister(ucsi->ucsi);
+-- 
+2.51.0

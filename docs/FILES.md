@@ -17,6 +17,7 @@ files/
 ```bash
 make files
 ./scripts/package-files.sh --pkg xiaomi-sheng-sensors
+./scripts/package-files.sh --pkg xiaomi-sheng-rfsa
 ```
 
 ## 文件来源与本地改动
@@ -25,7 +26,8 @@ make files
 |---|---|---|
 | `alsa-ucm-xiaomi-sheng` | `ianchb/debian-sheng` 的 ALSA UCM2 | `conf.d` 使用相对符号链接，避免重复配置 |
 | `xiaomi-sheng-sensors` | `ianchb/debian-sheng` 的 qcom 数据树 | 保留 DSP、sensor registry、persist 与 socinfo 布局；补充 udev 与 persist tmpfiles 规则 |
-| `mkinitcpio-bootflash` | 本仓库维护 | 适配 mkinitcpio post hook；支持 `BOOTFLASH_NO_FLASH=1` |
+| `xiaomi-sheng-rfsa` | 官方 Android `OS3.0.304.0.WNXCNXM` 镜像 | 原样保留 vendor/odm RFSA 音频、视频与相机 DSP6 文件，并生成逐文件 SHA-256 清单；禁止 makepkg strip |
+| `mkinitcpio-bootflash` | 本仓库维护 | post hook 只原子生成镜像；独立工具显式单槽备份、写入、校验与恢复 |
 | `xiaomi-mipps-auth` | 上游 0.21 Debian 文件 | `/usr/libexec` 改为 `/usr/lib/xiaomi-mipps-auth` |
 | `xiaomi-charger-mode` | 上游服务 | 使用 Arch 私有程序路径 |
 | `xiaomi-sheng-devauth` | debian-sheng 服务/drop-in | 合并 qteesupplicant 依赖 |
@@ -33,8 +35,15 @@ make files
 | `xiaomi-sheng-keyboard-helper` | 上游 0.2.0 | 私有程序路径；sensors PD 服务名迁移到 HexagonRPC 0.6.0 |
 | `xiaomi-sheng-thp` | 上游 0.3.9 | 私有程序路径；保留 `RuntimeDirectory` |
 
-HexagonRPC 自 0.6.0 起自行安装 systemd、udev、sysusers 和默认配置，因此本仓库不再
-维护 `files/install/hexagonrpc` 覆盖。
+HexagonRPC 0.6.0 自行安装 systemd、udev、sysusers 和通用配置。本仓库的
+`files/install/hexagonrpc` 仅保留 sheng 必需的安全覆盖：映射官方传感器固件使用的
+`/mnt/vendor/persist`，ADSP 只自动启动 sensors PD，传播 DSP 远端错误返回，并给单元
+增加启动限流。
+
+`files/install/linux-xiaomi-sheng/fastrpc-reserved-memory.dtso` 会在打包时叠加到
+上游 sheng DTB，为 ADSP FastRPC 绑定低地址专用 DMA pool。PKGBUILD 会对
+pool 大小、对齐和 phandle 进行构建期验证，避免生成未真正绑定的 DTB。
+同目录的标准 DTS patch 表达长期源代码修复；overlay 只用于当前预编译内核包的过渡期。
 
 ## 维护约束
 

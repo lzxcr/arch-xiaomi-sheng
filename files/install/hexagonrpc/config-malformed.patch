@@ -1,0 +1,17 @@
+diff --git a/crates/hexagonrpcd/src/config.rs b/crates/hexagonrpcd/src/config.rs
+index 9e483ab..ab635aa 100644
+--- a/crates/hexagonrpcd/src/config.rs
++++ b/crates/hexagonrpcd/src/config.rs
+@@ -76,5 +76,12 @@ impl Config {
+                     };
+                 }
+                 eprintln!("hexagonrpc: ignoring malformed config {}", path.display());
++                // A present per-device configuration is authoritative.  Do
++                // not silently replace a malformed device file with the
++                // global mapping, which may expose an incompatible layout.
++                return Config {
++                    root_path: root.to_string(),
++                    mappings: Vec::new(),
++                };
+             }
+         }

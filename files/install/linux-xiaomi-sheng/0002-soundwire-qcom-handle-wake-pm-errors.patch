@@ -1,0 +1,36 @@
+From: arch-xiaomi-sheng maintainers <noreply@example.invalid>
+Date: Mon, 24 Aug 2026 00:00:00 +0800
+Subject: [PATCH] soundwire: qcom: handle wake runtime-PM errors as IRQs
+
+An irqreturn_t handler must not return a negative errno.  When runtime resume
+fails, returning that errno is interpreted as IRQ_NONE.  A level-high wake
+line then reaches the spurious interrupt threshold and the IRQ core disables
+the SoundWire wake interrupt permanently.
+
+Disable the asserted wake IRQ on the error path, as the successful runtime
+resume path does, and report the interrupt handled.  Runtime suspend will
+re-enable the wake IRQ after the device has recovered.
+
+Signed-off-by: arch-xiaomi-sheng maintainers <noreply@example.invalid>
+---
+ drivers/soundwire/qcom.c | 6 +++++-
+ 1 file changed, 5 insertions(+), 1 deletion(-)
+
+diff --git a/drivers/soundwire/qcom.c b/drivers/soundwire/qcom.c
+index d3d3808d21ec..ab3d282d7846 100644
+--- a/drivers/soundwire/qcom.c
++++ b/drivers/soundwire/qcom.c
+@@ -699,6 +699,10 @@ static irqreturn_t qcom_swrm_wake_irq_handler(int irq, void *dev_id)
+ 				    __func__, ret);
+ 		pm_runtime_put_noidle(ctrl->dev);
+-		return ret;
++		if (ctrl->wake_irq > 0 &&
++		    !irqd_irq_disabled(irq_get_irq_data(ctrl->wake_irq)))
++			disable_irq_nosync(ctrl->wake_irq);
++
++		return IRQ_HANDLED;
+ 	}
+ 
+ 	if (ctrl->wake_irq > 0) {
+-- 
+2.51.0

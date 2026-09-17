@@ -1,20 +1,22 @@
 # Maintainer: Jacobi Lie <jssnlzxcr@gmail.com>
 pkgname=xiaomi-sheng-keyboard-helper
 pkgver=0.2.0
-pkgrel=2
+pkgrel=6
 pkgdesc="Keyboard helper for Xiaomi Sheng (Pad 6S Pro 12.4)"
 arch=('aarch64')
 url="https://github.com/ianchb/xiaomi-sheng-keyboard-helper"
 license=('Apache-2.0')
-depends=('glibc' 'glib2' 'hexagonrpc' 'systemd')
+depends=('glibc' 'glib2' 'libpulse' 'libssc' 'systemd')
 makedepends=('gcc' 'make' 'pkgconf')
 source=("${pkgname}-${pkgver}.tar.gz::${url}/archive/refs/tags/v${pkgver}.tar.gz"
         "files.tar.gz")
 sha256sums=('b7c2bf24bb2de69b7db7a89a9b6ef8c21b95b390897090850283789ea466ab46'
-            'SKIP')
+            'a386a8fd62f04c88310a42633f55aa591564a4582317fdd267f526270a1d53e6')
 
 prepare() {
   cd "${pkgname}-${pkgver}"
+  patch -Np1 -i "${srcdir}/sensor-fail-open.patch"
+  patch -Np1 -i "${srcdir}/micmute-no-source-poll.patch"
   sed -i "s|/usr/libexec/|/usr/lib/${pkgname}/|g" Makefile
 }
 

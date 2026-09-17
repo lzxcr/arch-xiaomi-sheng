@@ -1,17 +1,22 @@
 # Maintainer: Jacobi Lie <jssnlzxcr@gmail.com>
 pkgname=mkinitcpio-bootflash
 pkgver=1.0.0
-pkgrel=3
-pkgdesc="mkinitcpio post hook to build Android boot images for A/B devices"
+pkgrel=7
+pkgdesc="Safe Android boot image builder and single-slot installer for Xiaomi sheng"
 arch=('any')
 url="https://github.com/ianchb/arch-xiaomi-sheng"
 license=('GPL-2.0-only')
-depends=('android-tools' 'mkinitcpio')
+depends=('android-tools' 'coreutils' 'dtc' 'e2fsprogs' 'mkinitcpio' 'util-linux')
 source=("files.tar.gz")
-sha256sums=('SKIP')
+sha256sums=('ea20bb735856389f5bf30090c1d651690e380b06fb5ee5f5d3345953c3b7b6e9')
 
 package() {
   install -Dm755 "${srcdir}/bootflash" "${pkgdir}/usr/bin/bootflash"
+  install -Dm755 "${srcdir}/sheng-fdt-identities" \
+    "${pkgdir}/usr/bin/sheng-fdt-identities"
+  install -Dm755 "${srcdir}/sheng-boot-slot" "${pkgdir}/usr/bin/sheng-boot-slot"
+  install -Dm644 "${srcdir}/sheng-boot-slot.8" \
+    "${pkgdir}/usr/share/man/man8/sheng-boot-slot.8"
   # mkinitcpio 每次生成镜像后执行 /usr/lib/initcpio/post/ 下的可执行钩子
   install -Dm755 "${srcdir}/bootflash" \
     "${pkgdir}/usr/lib/initcpio/post/00-bootflash"
